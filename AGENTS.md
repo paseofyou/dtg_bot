@@ -141,6 +141,10 @@ GTX 1650 上 roberta-base fp16、batch 64、max_tokens 64 → **约 37 条推文
 - 报 Accuracy / Precision / Recall / F1 / MCC / AUC 的 mean±std，
   并对关键对比做**配对 t 检验**。AUC 对阈值不敏感，比 F1 更稳，应同时报告。
 - 每次运行追加一行到 `experiments/results.csv`，记录 git commit；dirty commit 的结果不得写入论文
+- ⚠️ **正式记录运行期间不要修改 `src/` `scripts/` `configs/`**。
+  commit 标记是在每行结果写入时求值的，中途改代码会让同一次运行的前后行
+  带上不同的 commit（已踩过：一次 60 行的运行里 12 行 clean、48 行 dirty）。
+  等运行结束再改，或改文档（AGENTS.md / 论文）——文档不影响 dirty 判定。
 
 ## 目录约定
 

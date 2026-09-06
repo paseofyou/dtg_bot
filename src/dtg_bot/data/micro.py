@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import json
 import re
+from datetime import datetime, timezone
 from pathlib import Path
 
 import numpy as np
@@ -54,7 +55,22 @@ CHANNEL_NAMES = (
     "self_repeat_max",  # max_{j<i} cos(e_i, e_j)  对历史内容的最大自重复度
 )
 
+#: 仅在有**真实推文时间戳**时可用（TwiBot-22）。TwiBot-20 无时间戳，不可用。
+#: 这组通道是 order-vs-Δt 实验的关键：用来回答"真实发帖时刻是否比
+#: 顺序无关的事件内容特征提供额外信息"。
+TEMPORAL_CHANNEL_NAMES = (
+    "dt_prev",    # log1p(与前一条的间隔秒数)，自动化脚本的间隔分布异于人类
+    "hour_sin",   # 发帖时刻的昼夜相位（圆周编码，避免 0 点/23 点被当成远距离）
+    "hour_cos",
+    "dow",        # 星期（归一化到 [0,1]），机器人常缺少工作日/周末节律
+)
+
 N_CHANNELS = len(CHANNEL_NAMES)
+N_TEMPORAL_CHANNELS = len(TEMPORAL_CHANNEL_NAMES)
+
+
+def channel_names(with_temporal: bool = False) -> tuple[str, ...]:
+    return CHANNEL_NAMES + TEMPORAL_CHANNEL_NAMES if with_temporal else CHANNEL_NAMES
 
 _RE_HASHTAG = re.compile(r"#\w+")
 _RE_MENTION = re.compile(r"@\w+")
@@ -95,6 +111,7 @@ def build_user_micro_sequence(
     tweets: list[str],
     embeddings: np.ndarray,
     valid: np.ndarray,
+    timestamps: list[float] | None = None,
 ) -> np.ndarray:
     """构建单用户的事件驱动序列。
 
@@ -102,12 +119,15 @@ def build_user_micro_sequence(
         tweets: 时间正序（旧 → 新）的推文原文，长度 = valid.sum()
         embeddings: (L, 768) 该用户的推文嵌入，padding 位为 0
         valid: (L,) bool，True 表示真实推文
+        timestamps: 可选，与 tweets 对应的 epoch 秒（仅 TwiBot-22 有）。
+            提供时额外产出 TEMPORAL_CHANNEL_NAMES 四个通道。
 
     Returns:
-        (L, N_CHANNELS) float32，padding 位为 0
+        (L, C) float32，padding 位为 0；C = 14 或 18
     """
     seq_len = embeddings.shape[0]
-    feat = np.zeros((seq_len, N_CHANNELS), dtype=np.float32)
+    n_ch = N_CHANNELS + (N_TEMPORAL_CHANNELS if timestamps is not None else 0)
+    feat = np.zeros((seq_len, n_ch), dtype=np.float32)
     n_valid = int(valid.sum())
     if n_valid == 0:
         return feat
@@ -141,13 +161,26 @@ def build_user_micro_sequence(
         else:
             has_prev = cos_prev = l2_prev = jac_prev = self_repeat = 0.0
 
-        feat[i] = (
+        feat[i, :N_CHANNELS] = (
             log_len, is_rt, n_hash, n_men, n_url, upper_r, digit_r,
             has_prev, cos_prev, l2_prev, jac_prev,
             float(rt_run) / 10.0,
             float(unit[i] @ centroid),
             self_repeat,
         )
+
+        if timestamps is not None:
+            ts = float(timestamps[i])
+            dt_prev = float(np.log1p(max(ts - float(timestamps[i - 1]), 0.0))) if i > 0 else 0.0
+            # UTC 小时与星期，用圆周编码避免 23 点与 0 点被当成远距离
+            dt_obj = datetime.fromtimestamp(ts, tz=timezone.utc)
+            hour_frac = (dt_obj.hour + dt_obj.minute / 60.0) / 24.0
+            feat[i, N_CHANNELS:] = (
+                dt_prev,
+                float(np.sin(2 * np.pi * hour_frac)),
+                float(np.cos(2 * np.pi * hour_frac)),
+                dt_obj.weekday() / 6.0,
+            )
     return feat
 
 
@@ -156,8 +189,13 @@ def build_micro_features(
     encoded_dir: str | Path,
     out_dir: str | Path,
     fit_split: str = "train",
+    with_temporal: bool = False,
 ) -> dict:
     """为所有用户构建事件驱动序列并归一化。
+
+    Args:
+        with_temporal: 是否附加真实时间通道。**要求 jsonl 每行含 ``timestamps``**
+            （仅 TwiBot-22 满足）。这是 order-vs-Δt 实验的开关。
 
     产物：
         micro_feat.npy   float32 (N, L, C)
@@ -171,13 +209,23 @@ def build_micro_features(
     emb, mask, splits = enc["emb"], enc["mask"], enc["splits"]
     n_users, seq_len = mask.shape
 
-    feats = np.zeros((n_users, seq_len, N_CHANNELS), dtype=np.float32)
+    names = channel_names(with_temporal)
+    feats = np.zeros((n_users, seq_len, len(names)), dtype=np.float32)
 
     with Path(jsonl_path).open("r", encoding="utf-8") as fh:
         for idx, line in enumerate(tqdm(fh, total=n_users, desc="micro seq", unit="user")):
             user = json.loads(line)
+            ts = None
+            if with_temporal:
+                ts = user.get("timestamps")
+                if ts is None:
+                    raise KeyError(
+                        f"with_temporal=True 但第 {idx} 行缺少 'timestamps' 字段；"
+                        "TwiBot-20 无推文时间戳，不能开启该选项"
+                    )
+                ts = ts[-seq_len:]
             feats[idx] = build_user_micro_sequence(
-                user["tweets"][-seq_len:], np.asarray(emb[idx]), mask[idx]
+                user["tweets"][-seq_len:], np.asarray(emb[idx]), mask[idx], ts
             )
 
     # --- 归一化：只用 fit_split 的有效位统计 ---
@@ -186,8 +234,10 @@ def build_micro_features(
     mean = fit_valid.mean(axis=0)
     std = fit_valid.std(axis=0)
     std[std < 1e-6] = 1.0
-    # 二值/已归一化通道不做标准化，保持可解释性
-    keep_raw = [CHANNEL_NAMES.index(c) for c in ("is_retweet", "has_prev", "upper_ratio", "digit_ratio")]
+    # 二值 / 已在 [0,1] 或 [-1,1] 的通道不做标准化，保持可解释性
+    raw_channels = ("is_retweet", "has_prev", "upper_ratio", "digit_ratio",
+                    "hour_sin", "hour_cos", "dow")
+    keep_raw = [names.index(c) for c in raw_channels if c in names]
     mean[keep_raw] = 0.0
     std[keep_raw] = 1.0
 
@@ -197,8 +247,9 @@ def build_micro_features(
     np.save(out_dir / "micro_feat.npy", feats)
     np.save(out_dir / "micro_mask.npy", mask)
     meta = {
-        "channel_names": list(CHANNEL_NAMES),
-        "n_channels": N_CHANNELS,
+        "channel_names": list(names),
+        "n_channels": len(names),
+        "with_temporal": with_temporal,
         "seq_len": int(seq_len),
         "n_users": int(n_users),
         "fit_split": fit_split,
