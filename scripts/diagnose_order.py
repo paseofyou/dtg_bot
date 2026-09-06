@@ -186,17 +186,23 @@ def main() -> None:
         print(f"  {name:<9} F1 {s['f1']:<16} Acc {s['accuracy']:<16} AUC {s.get('auc','-')}")
 
     if "keep" in collected:
-        print("\n配对 t 检验 (F1, keep vs 对照)")
-        base = [r["f1"] for r in collected["keep"]]
+        print(f"\n配对 t 检验 (keep vs 对照, n={len(args.seeds)} seeds)")
         for name in ("shuffle", "reverse", "bag"):
             if name not in collected:
                 continue
-            other = [r["f1"] for r in collected[name]]
-            t, p = stats.ttest_rel(base, other)
-            delta = 100 * (np.mean(base) - np.mean(other))
-            verdict = "显著" if p < 0.05 else "不显著"
-            print(f"  keep vs {name:<9} ΔF1 = {delta:+.2f}  t={t:+.3f}  p={p:.4f}  [{verdict}]")
-        print("\n判定：若 keep vs shuffle 不显著 → 顺序无判别信息，微观分支叙事不成立。")
+            parts = []
+            for metric in ("f1", "auc"):
+                base = [r[metric] for r in collected["keep"]]
+                other = [r[metric] for r in collected[name]]
+                t, p = stats.ttest_rel(base, other)
+                star = "*" if p < 0.05 else " "
+                parts.append(
+                    f"Δ{metric.upper()}={100 * (np.mean(base) - np.mean(other)):+.2f} "
+                    f"t={t:+.3f} p={p:.4f}{star}"
+                )
+            print(f"  keep vs {name:<8} " + " | ".join(parts))
+        print("\n判定：若 keep vs shuffle 不显著 → 顺序无判别信息；"
+              "若 keep vs bag 显著 → 事件级注意力有效。")
 
 
 if __name__ == "__main__":

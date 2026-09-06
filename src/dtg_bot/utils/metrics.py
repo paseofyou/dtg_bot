@@ -32,8 +32,14 @@ def compute_metrics(y_true, y_pred, y_score=None) -> dict[str, float]:
     return {k: float(v) for k, v in out.items()}
 
 
+#: 只有这些路径下的未提交改动才会让结果被标记为 dirty。
+#: 文档（AGENTS.md）与结果文件（experiments/）的改动不影响可复现性，
+#: 否则每次更新说明文档都会作废一批实验结果。
+CODE_PATHS = ("src", "scripts", "configs")
+
+
 def git_commit() -> str:
-    """返回当前 commit，工作区有未提交改动时加 -dirty 后缀。
+    """返回当前 commit，**代码**有未提交改动时加 -dirty 后缀。
 
     带 -dirty 的结果不可复现，不得写入论文（见 AGENTS.md 实验协议）。
     """
@@ -42,7 +48,8 @@ def git_commit() -> str:
             ["git", "rev-parse", "--short", "HEAD"], stderr=subprocess.DEVNULL, text=True
         ).strip()
         dirty = subprocess.check_output(
-            ["git", "status", "--porcelain"], stderr=subprocess.DEVNULL, text=True
+            ["git", "status", "--porcelain", "--", *CODE_PATHS],
+            stderr=subprocess.DEVNULL, text=True,
         ).strip()
         return f"{rev}-dirty" if dirty else rev
     except Exception:
