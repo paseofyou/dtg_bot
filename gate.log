@@ -1,0 +1,93 @@
+﻿python.exe : C:\Users\20996\.conda\envs\torch_pyg\lib\site-packages\torch\nn\modules\transformer.py:379: UserWarning: e
+nable_nested_tensor is True, but self.use_nested_tensor is False because encoder_layer.norm_first was True
+所在位置 行:1 字符: 36
++ ... 文\dtg_bot"; & "C:\Users\20996\.conda\envs\torch_pyg\python.exe" scrip ...
++                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (C:\Users\20996\..._first was True:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+  warnings.warn(
+C:\Users\20996\.conda\envs\torch_pyg\lib\site-packages\torch\nn\modules\transformer.py:379: UserWarning: enable_nested_
+tensor is True, but self.use_nested_tensor is False because encoder_layer.norm_first was True
+  warnings.warn(
+C:\Users\20996\.conda\envs\torch_pyg\lib\site-packages\torch\nn\modules\transformer.py:379: UserWarning: enable_nested_
+tensor is True, but self.use_nested_tensor is False because encoder_layer.norm_first was True
+  warnings.warn(
+C:\Users\20996\.conda\envs\torch_pyg\lib\site-packages\torch\nn\modules\transformer.py:379: UserWarning: enable_nested_
+tensor is True, but self.use_nested_tensor is False because encoder_layer.norm_first was True
+  warnings.warn(
+C:\Users\20996\.conda\envs\torch_pyg\lib\site-packages\torch\nn\modules\transformer.py:379: UserWarning: enable_nested_
+tensor is True, but self.use_nested_tensor is False because encoder_layer.norm_first was True
+  warnings.warn(
+C:\Users\20996\.conda\envs\torch_pyg\lib\site-packages\torch\nn\modules\transformer.py:379: UserWarning: enable_nested_
+tensor is True, but self.use_nested_tensor is False because encoder_layer.norm_first was True
+  warnings.warn(
+C:\Users\20996\.conda\envs\torch_pyg\lib\site-packages\torch\nn\modules\transformer.py:379: UserWarning: enable_nested_
+tensor is True, but self.use_nested_tensor is False because encoder_layer.norm_first was True
+  warnings.warn(
+C:\Users\20996\.conda\envs\torch_pyg\lib\site-packages\torch\nn\modules\transformer.py:379: UserWarning: enable_nested_
+tensor is True, but self.use_nested_tensor is False because encoder_layer.norm_first was True
+  warnings.warn(
+C:\Users\20996\.conda\envs\torch_pyg\lib\site-packages\torch\nn\modules\transformer.py:379: UserWarning: enable_nested_
+tensor is True, but self.use_nested_tensor is False because encoder_layer.norm_first was True
+  warnings.warn(
+C:\Users\20996\.conda\envs\torch_pyg\lib\site-packages\torch\nn\modules\transformer.py:379: UserWarning: enable_nested_
+tensor is True, but self.use_nested_tensor is False because encoder_layer.norm_first was True
+  warnings.warn(
+C:\Users\20996\.conda\envs\torch_pyg\lib\site-packages\torch\nn\modules\transformer.py:379: UserWarning: enable_nested_
+tensor is True, but self.use_nested_tensor is False because encoder_layer.norm_first was True
+  warnings.warn(
+C:\Users\20996\.conda\envs\torch_pyg\lib\site-packages\torch\nn\modules\transformer.py:379: UserWarning: enable_nested_
+tensor is True, but self.use_nested_tensor is False because encoder_layer.norm_first was True
+  warnings.warn(
+C:\Users\20996\.conda\envs\torch_pyg\lib\site-packages\torch\nn\modules\transformer.py:379: UserWarning: enable_nested_
+tensor is True, but self.use_nested_tensor is False because encoder_layer.norm_first was True
+  warnings.warn(
+C:\Users\20996\.conda\envs\torch_pyg\lib\site-packages\torch\nn\modules\transformer.py:379: UserWarning: enable_nested_
+tensor is True, but self.use_nested_tensor is False because encoder_layer.norm_first was True
+  warnings.warn(
+C:\Users\20996\.conda\envs\torch_pyg\lib\site-packages\torch\nn\modules\transformer.py:379: UserWarning: enable_nested_
+tensor is True, but self.use_nested_tensor is False because encoder_layer.norm_first was True
+  warnings.warn(
+通道 14  L=32  train/dev/test = 8278/2365/1183  device=cuda
+  keep      seed=42    f1=0.7547 acc=0.7219 auc=0.7775
+  keep      seed=123   f1=0.7459 acc=0.6889 auc=0.7733
+  keep      seed=456   f1=0.7554 acc=0.7219 auc=0.7809
+  keep      seed=789   f1=0.7436 acc=0.6957 auc=0.7708
+  keep      seed=2024  f1=0.7543 acc=0.7109 auc=0.7772
+  keep      → {'accuracy': '70.79 ± 1.51', 'precision': '69.84 ± 2.33', 'recall': '81.28 ± 2.17', 'f1': '75.08 ± 0.56', 'mcc': '41.05 ± 2.91', 'auc': '77.59 ± 0.39'}
+
+  shuffle   seed=42    f1=0.7489 acc=0.7058 auc=0.7762
+  shuffle   seed=123   f1=0.7453 acc=0.7025 auc=0.7811
+  shuffle   seed=456   f1=0.7504 acc=0.7075 auc=0.7770
+  shuffle   seed=789   f1=0.7411 acc=0.6864 auc=0.7674
+  shuffle   seed=2024  f1=0.7385 acc=0.6965 auc=0.7739
+  shuffle   → {'accuracy': '69.97 ± 0.86', 'precision': '68.96 ± 1.14', 'recall': '81.00 ± 1.36', 'f1': '74.48 ± 0.50', 'mcc': '39.34 ± 1.68', 'auc': '77.51 ± 0.51'}
+
+  reverse   seed=42    f1=0.7516 acc=0.7084 auc=0.7799
+  reverse   seed=123   f1=0.7467 acc=0.6932 auc=0.7740
+  reverse   seed=456   f1=0.7406 acc=0.7033 auc=0.7756
+  reverse   seed=789   f1=0.7370 acc=0.6881 auc=0.7605
+  reverse   seed=2024  f1=0.7481 acc=0.6982 auc=0.7795
+  reverse   → {'accuracy': '69.82 ± 0.80', 'precision': '68.68 ± 1.23', 'recall': '81.41 ± 2.06', 'f1': '74.48 ± 0.59', 'mcc': '39.09 ± 1.59', 'auc': '77.39 ± 0.79'}
+
+  bag       seed=42    f1=0.7184 acc=0.6746 auc=0.7288
+  bag       seed=123   f1=0.7171 acc=0.6585 auc=0.7257
+  bag       seed=456   f1=0.7291 acc=0.6746 auc=0.7328
+  bag       seed=789   f1=0.7306 acc=0.6915 auc=0.7461
+  bag       seed=2024  f1=0.7279 acc=0.6746 auc=0.7365
+  bag       → {'accuracy': '67.47 ± 1.17', 'precision': '66.90 ± 1.59', 'recall': '79.09 ± 1.92', 'f1': '72.46 ± 0.64', 'mcc': '34.15 ± 2.37', 'auc': '73.40 ± 0.79'}
+
+========================================================================
+汇总 (mean ± std, %)
+  keep      F1 75.08 ± 0.56     Acc 70.79 ± 1.51     AUC 77.59 ± 0.39
+  shuffle   F1 74.48 ± 0.50     Acc 69.97 ± 0.86     AUC 77.51 ± 0.51
+  reverse   F1 74.48 ± 0.59     Acc 69.82 ± 0.80     AUC 77.39 ± 0.79
+  bag       F1 72.46 ± 0.64     Acc 67.47 ± 1.17     AUC 73.40 ± 0.79
+
+配对 t 检验 (F1, keep vs 对照)
+  keep vs shuffle   ΔF1 = +0.59  t=+2.249  p=0.0877  [不显著]
+  keep vs reverse   ΔF1 = +0.60  t=+2.313  p=0.0818  [不显著]
+  keep vs bag       ΔF1 = +2.62  t=+6.941  p=0.0023  [显著]
+
+判定：若 keep vs shuffle 不显著 → 顺序无判别信息，微观分支叙事不成立。

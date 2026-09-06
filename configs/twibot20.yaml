@@ -1,0 +1,41 @@
+dataset: TwiBot-20
+
+paths:
+  # 本地开发默认值；云上用 --work-dir 覆盖 root
+  raw: D:/project/dataset/TwiBot-20/raw
+  cache: ../cache/twibot20
+
+data:
+  splits: [train, dev, test, support]
+  labeled_splits: [train, dev, test]
+
+micro:
+  # 每用户取最近 L 条推文（时间正序后取末尾 L 条）。
+  # TwiBot-20 每用户最多 200 条（中位数 200），故 L 可放宽；
+  # 缓存开销 11826 x 32 x 768 x 2B = 0.58GB，可接受。L 敏感性实验跑 16/32/64。
+  seq_len: 32
+  text_encoder: roberta-base
+  max_text_tokens: 64
+  encode_batch_size: 128
+  # 转移特征通道，见 src/dtg_bot/data/micro.py::TRANSITION_CHANNELS
+  channels: all
+
+macro:
+  num_snapshots: 8           # 按 created_at 分位数切分的快照数
+
+model:
+  embedding_dim: 64
+  micro_d_model: 64
+  micro_layers: 2
+  micro_heads: 4
+  micro_dropout: 0.1
+  dropout: 0.3
+  num_relations: 2
+
+train:
+  lr: 0.01
+  weight_decay: 0.05
+  epochs: 150
+  patience: 30
+  select_metric: f1
+  seeds: [42, 123, 456, 789, 2024]
