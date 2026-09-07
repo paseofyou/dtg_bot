@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import torch
 import torch.nn as nn
+from torch.utils.checkpoint import checkpoint
 
 from .graph import RGCNEncoder
 
@@ -28,14 +29,27 @@ class MacroSnapshotEncoder(nn.Module):
         temporal: ``gru`` 单向 GRU（快照有明确时间方向，单向即可）；
             ``transformer`` 带可学习位置编码的自注意力；
             ``last`` 只取最后一个快照（= 静态全图，用作宏观分支的消融对照）。
+        checkpoint: 是否对每个快照的 RGCN 前向启用梯度检查点。**默认开启。**
+
+            不开启时 K 个快照的中间量全部驻留到反向，其中主体并非逐节点激活，
+            而是 ``RGCNConv.propagate`` 为反向保存的 masked ``edge_index``/
+            ``edge_type``（int64）：单快照约 (2,E)+(E,) 即 E×24 字节，
+            TwiBot-20 全图 K=8 时合计约 7GB，再叠加逐边消息张量 (E, emb)
+            的反向分配（约 9GB）即击穿 24GB 显存。
+
+            开启后前向不保存快照内部中间量，反向时**逐快照重算**，
+            峰值只需容纳 1 个快照而非 K 个；代价是多一次前向计算。
+            ``preserve_rng_state`` 默认为真，dropout 的随机状态会被保存并复现，
+            因此结果与不开检查点在数值上一致（种子可复现性不受影响）。
     """
 
     def __init__(self, emb: int = 64, num_relations: int = 2, num_snapshots: int = 8,
                  out_dim: int = 64, dropout: float = 0.3, temporal: str = "gru",
-                 n_heads: int = 4, n_layers: int = 1):
+                 n_heads: int = 4, n_layers: int = 1, checkpoint: bool = True):
         super().__init__()
         self.num_snapshots = num_snapshots
         self.temporal = temporal
+        self.use_checkpoint = checkpoint
         # 所有快照共享同一套 RGCN 权重
         self.rgcn = RGCNEncoder(emb, num_relations, dropout)
 
@@ -56,6 +70,17 @@ class MacroSnapshotEncoder(nn.Module):
             raise ValueError(f"unknown temporal: {temporal}")
         self.norm = nn.LayerNorm(out_dim)
 
+    def _snapshot(self, x, edge_index, edge_type, mask) -> torch.Tensor:
+        """单个快照的 RGCN 前向，按需包上梯度检查点。
+
+        仅在训练且梯度开启时包检查点：eval / no_grad 下本就不保存反向中间量，
+        包上只会白多算一遍。
+        """
+        if self.use_checkpoint and self.training and torch.is_grad_enabled():
+            return checkpoint(self.rgcn, x, edge_index, edge_type, mask,
+                              use_reentrant=False)
+        return self.rgcn(x, edge_index, edge_type, mask)
+
     def forward(self, x, edge_index, edge_type, snapshot_masks) -> torch.Tensor:
         """
         Args:
@@ -67,12 +92,12 @@ class MacroSnapshotEncoder(nn.Module):
             (N, out_dim)
         """
         if self.temporal == "last":
-            h = self.rgcn(x, edge_index, edge_type, snapshot_masks[-1])
+            h = self._snapshot(x, edge_index, edge_type, snapshot_masks[-1])
             return self.norm(self.proj(h))
 
         # (K, N, emb) → (N, K, emb)
         states = torch.stack(
-            [self.rgcn(x, edge_index, edge_type, m) for m in snapshot_masks], dim=0
+            [self._snapshot(x, edge_index, edge_type, m) for m in snapshot_masks], dim=0
         ).transpose(0, 1)
 
         if self.temporal == "gru":

@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import torch
 import torch.nn as nn
+from torch.utils.checkpoint import checkpoint
 
 from .fusion import GatedFusion, ViewAttentionFusion, multi_view_contrastive
 from .graph import RGCNEncoder, StaticFeatureEncoder
@@ -45,6 +46,7 @@ class DTGBot(nn.Module):
         micro_seq_model: str = "transformer",
         micro_order_mode: str = "keep",
         micro_use_position: bool = False,
+        macro_checkpoint: bool = True,
     ):
         super().__init__()
         bad = set(use_views) - set(VIEW_NAMES)
@@ -54,6 +56,7 @@ class DTGBot(nn.Module):
             raise ValueError("至少要启用一个视图")
         self.use_views = tuple(v for v in VIEW_NAMES if v in use_views)
         self.fusion_type = fusion
+        self.macro_checkpoint = macro_checkpoint
 
         # 静态特征编码器由 macro / global 两个图分支共享
         self.static = StaticFeatureEncoder(
@@ -72,6 +75,7 @@ class DTGBot(nn.Module):
             self.macro = MacroSnapshotEncoder(
                 emb=emb, num_relations=num_relations, num_snapshots=num_snapshots,
                 out_dim=emb, dropout=dropout, temporal=macro_temporal,
+                checkpoint=macro_checkpoint,
             )
         if "global" in self.use_views:
             self.global_rgcn = RGCNEncoder(emb, num_relations, dropout)
@@ -125,9 +129,15 @@ class DTGBot(nn.Module):
                 x, batch["edge_index"], batch["edge_type"], batch["snapshot_masks"]
             )
         if "global" in self.use_views:
-            views["global"] = self.global_norm(
-                self.global_rgcn(x, batch["edge_index"], batch["edge_type"])
-            )
+            # 全局分支同样是一次全图 RGCN，其反向中间量与单个宏观快照同量级。
+            # 实测在合成图上它比 8 个宏观快照加起来还多（1.8 vs 0.9 GiB），
+            # 故与宏观分支采用同一开关一并检查点化。
+            if self.macro_checkpoint and self.training and torch.is_grad_enabled():
+                h = checkpoint(self.global_rgcn, x, batch["edge_index"],
+                               batch["edge_type"], use_reentrant=False)
+            else:
+                h = self.global_rgcn(x, batch["edge_index"], batch["edge_type"])
+            views["global"] = self.global_norm(h)
         return views
 
     def forward(self, batch: dict, return_views: bool = False):

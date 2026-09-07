@@ -54,6 +54,7 @@ def build_model(args, data) -> nn.Module:
         fusion=args.fusion, use_views=tuple(args.views),
         micro_seq_model=args.micro_seq_model, micro_order_mode=args.micro_order_mode,
         micro_use_position=args.micro_use_position,
+        macro_checkpoint=not args.no_macro_checkpoint,
     )
 
 
@@ -102,6 +103,9 @@ def run_one_seed(args, data, seed: int, device: str) -> dict:
         loss.backward()
         nn.utils.clip_grad_norm_(model.parameters(), args.grad_clip)
         opt.step()
+        # 训练前向的 logits/views 在紧随其后的评估前向期间仍被引用（三视图各 (N,emb)），
+        # 显式释放以免两次前向的峰值叠加。
+        del logits, views, loss
 
         model.eval()
         with torch.no_grad():
@@ -146,6 +150,8 @@ def main() -> None:
     ap.add_argument("--micro-seq-model", default="transformer", choices=["transformer", "bag"])
     ap.add_argument("--micro-order-mode", default="keep", choices=["keep", "shuffle", "reverse"])
     ap.add_argument("--micro-use-position", action="store_true")
+    ap.add_argument("--no-macro-checkpoint", action="store_true",
+                    help="关闭宏观分支的梯度检查点（省一次重算但显存翻 K 倍，24GB 卡会 OOM）")
     ap.add_argument("--seq-len", type=int, default=32)
     ap.add_argument("--num-snapshots", type=int, default=8)
     ap.add_argument("--emb", type=int, default=64)
