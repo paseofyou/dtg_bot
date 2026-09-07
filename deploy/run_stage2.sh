@@ -53,6 +53,9 @@ log "=============================================================="
 
 cd "$CODE_DIR"
 export PYTHONPATH="$CODE_DIR/src:${PYTHONPATH:-}"
+# 阶段 2 首次运行曾在 backward 处 OOM，其中 7.95GB 为 reserved-but-unallocated 碎片。
+# 可伸缩段能显著缓解全图训练下大块张量反复申请/释放造成的碎片。
+export PYTORCH_CUDA_ALLOC_CONF="${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}"
 
 # ---------- M1 主模型 ----------
 run dtg_main --views micro macro global --fusion attn --lambda "$LAMBDA"

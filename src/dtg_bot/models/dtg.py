@@ -94,6 +94,23 @@ class DTGBot(nn.Module):
             nn.Linear(head_in, emb), nn.LeakyReLU(), nn.Dropout(dropout), nn.Linear(emb, 2)
         )
 
+    def _encode_micro(self, batch: dict) -> torch.Tensor:
+        """微观分支前向。
+
+        ``batch["micro_index"]`` 给出需要计算的行（标注节点）时只在这些行上跑
+        编码器，其余行补零。微观视图不经图传播，未标注节点的输出不进入任何损失、
+        梯度恒为 0，故此举与全量前向**数学等价**；但把注意力矩阵从
+        n_nodes × heads × L × L（约 3.8GB/层）压到标注节点规模，避免 OOM。
+        """
+        feat, mask = batch["micro_feat"], batch["micro_mask"]
+        rows = batch.get("micro_index")
+        if rows is None:
+            return self.micro(feat, mask)
+        z = self.micro(feat[rows], mask[rows])
+        out = z.new_zeros((feat.shape[0], z.shape[1]))
+        out[rows] = z
+        return out
+
     def encode_views(self, batch: dict) -> dict[str, torch.Tensor]:
         """返回各视图的节点表示。batch 需含图分支所需的全图张量。"""
         views: dict[str, torch.Tensor] = {}
@@ -102,7 +119,7 @@ class DTGBot(nn.Module):
             if need_graph else None
 
         if "micro" in self.use_views:
-            views["micro"] = self.micro(batch["micro_feat"], batch["micro_mask"])
+            views["micro"] = self._encode_micro(batch)
         if "macro" in self.use_views:
             views["macro"] = self.macro(
                 x, batch["edge_index"], batch["edge_type"], batch["snapshot_masks"]

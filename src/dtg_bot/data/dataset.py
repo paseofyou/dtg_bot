@@ -114,6 +114,12 @@ def load_twibot20(
         data["micro_feat"] = torch.from_numpy(full)
         data["micro_mask"] = torch.from_numpy(full_mask)
         data["micro_meta"] = micro_meta
+        # 微观视图不参与图传播（直接进融合层→分类头），support 节点的微观输出
+        # 不被任何损失使用、梯度恒为 0。因此只在标注节点上计算，数学等价而非近似。
+        # 不这么做会在全部 n_nodes 行上跑 Transformer：注意力矩阵
+        # n_nodes × heads × L × L 约 3.8GB/层，24GB 卡上直接 OOM。
+        labeled_rows = np.concatenate([idx[name] for name in ("train", "dev", "test")])
+        data["micro_index"] = torch.from_numpy(np.sort(labeled_rows))
 
     if device != "cpu":
         data = to_device(data, device)
