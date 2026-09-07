@@ -40,8 +40,10 @@ from dtg_bot.data.twibot22 import (
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--data", required=True, help="含 user.json/label.csv/split.csv/tweet_*.json")
-    ap.add_argument("--cache", required=True)
+    ap.add_argument("--work-dir", default=None,
+                    help="根目录；数据默认在 <work-dir>/data/twibot22，产物在 <work-dir>/cache/twibot22")
+    ap.add_argument("--data", default=None, help="含 user.json/label.csv/split.csv/tweet_*.json")
+    ap.add_argument("--cache", default=None)
     ap.add_argument("--seq-len", type=int, default=16)
     ap.add_argument("--model", default="roberta-base")
     ap.add_argument("--batch-size", type=int, default=384)
@@ -52,7 +54,18 @@ def main() -> None:
                     choices=["collect", "encode", "micro"])
     ap.add_argument("--with-temporal", action="store_true",
                     help="micro 步骤附加真实时间通道（order-vs-Δt 实验）")
+    ap.add_argument("--stats-only", action="store_true",
+                    help="collect 只统计时间戳单调性、不保存文本（内存 5GB→130MB）")
     args = ap.parse_args()
+
+    if args.work_dir:
+        work = Path(args.work_dir)
+        args.data = args.data or str(work / "data" / "twibot22")
+        args.cache = args.cache or str(work / "cache" / "twibot22")
+    if not args.data or not args.cache:
+        ap.error("需提供 --work-dir，或同时提供 --data 与 --cache")
+    if not Path(args.data).exists():
+        ap.error(f"数据目录不存在: {args.data}")
 
     cache = Path(args.cache)
     cache.mkdir(parents=True, exist_ok=True)
@@ -74,13 +87,36 @@ def main() -> None:
         meta = collect_recent_tweets(
             args.data, raw_jsonl, seq_len=args.seq_len,
             keep_users=keep, tweet_files=tuple(args.tweet_files),
+            stats_only=args.stats_only,
         )
         print(f"[collect] 完成 ({time.time() - t0:.0f}s)")
         print("          " + json.dumps(meta, indent=2))
-        print(f"\n  >>> 顺序假设检验：时间戳单调性违例率 = {meta['order_violation_rate']:.4%}"
-              f"，有违例的作者占比 = {meta['frac_authors_with_violation']:.4%}")
-        print("      违例率接近 0 → dump 确实按时间倒序，"
-              "TwiBot-20 上的顺序空结果才能解释为'顺序本身无信息'\n")
+
+        print("\n" + "=" * 70)
+        print("顺序假设实证检验（论文 5.5.1 节 / 3.3 节结论所依赖）")
+        print("=" * 70)
+        print(f"  扫描推文        : {meta['n_tweets_scanned']:,}")
+        print(f"  作者数          : {meta['n_authors']:,}")
+        print(f"  相邻推文对      : {meta['n_adjacent_pairs']:,}")
+        print(f"  时间倒序违例    : {meta['n_order_violations']:,}")
+        print(f"  违例率          : {meta['order_violation_rate']:.6%}")
+        print(f"  有违例的作者占比: {meta['frac_authors_with_violation']:.4%}")
+        print()
+        rate = meta["order_violation_rate"]
+        if rate < 0.001:
+            print("  [ORDER-PRESERVED] 违例率 < 0.1%，dump 严格按时间倒序，列表保序假设成立。")
+            print("     TwiBot-20 的 keep~shuffle 空结果可解释为'顺序本身无判别信息'。")
+        elif rate < 0.05:
+            print("  [ORDER-MOSTLY] 违例率偏高但整体有序，假设基本成立，论文中需报告该比率。")
+        else:
+            print("  [ORDER-BROKEN] 违例率显著，dump 未保序。TwiBot-20 上的顺序空结果")
+            print("     不能否证'顺序含信息'，论文 3.3/5.5 必须相应降级表述。")
+        print("=" * 70 + "\n")
+
+        if args.stats_only:
+            print("[collect] stats-only 模式，未写出 jsonl；"
+                  "拿到违例率后请去掉 --stats-only 再跑完整 collect。")
+            return
 
         # 补上 label / split，对齐 encode.py 期望的 jsonl 格式
         tmp = raw_jsonl.with_suffix(".tmp")

@@ -102,6 +102,7 @@ def collect_recent_tweets(
     seq_len: int = 16,
     keep_users: set[str] | None = None,
     tweet_files: tuple[str, ...] = TWEET_FILES,
+    stats_only: bool = False,
 ) -> dict:
     """单遍扫描全部 tweet 文件，为每个作者收集最近 seq_len 条推文。
 
@@ -110,13 +111,30 @@ def collect_recent_tweets(
 
     Args:
         keep_users: 只收集这些作者（通常是有标签的用户集合），None 表示全收。
+        stats_only: 只统计时间戳单调性，**不保存任何文本**。
+            100 万作者 × 16 条推文的文本约占 4~5GB Python 对象，云端有 OOM 风险；
+            而第一阶段只需要违例率，此模式内存降到约 130MB。
 
     产物：jsonl，每行
         {"user_id", "tweets": [时间正序文本...], "timestamps": [epoch 秒...],
          "sources": [...], "n_seen": 该作者被扫到的推文总数}
+        stats_only=True 时不写 jsonl，仅写 meta。
     """
     data_dir, out_path = Path(data_dir), Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # 解析 tweet 文件真实路径：容忍子目录嵌套与目录/文件软链接。
+    # 顶层找不到时按文件名在整个数据目录下递归查找一次（仅扫文件名，开销可忽略）。
+    resolved: dict[str, Path] = {}
+    for p in data_dir.rglob("tweet_*.json"):
+        resolved.setdefault(p.name, p)
+    if not resolved:
+        raise FileNotFoundError(
+            f"在 {data_dir} 及其子目录下未找到任何 tweet_*.json，"
+            "请检查数据目录层级或软链接是否指向真实文件。"
+        )
+    resolved_dirs = sorted({str(p.parent) for p in resolved.values()})
+    print(f"[collect] 解析到 {len(resolved)} 个 tweet 文件，所在目录: {resolved_dirs}")
 
     # author -> {"tw": [(ts, text, source)...], "n_seen": int, "violations": int, "last_ts": float}
     buffers: dict[str, dict] = {}
@@ -124,7 +142,7 @@ def collect_recent_tweets(
     missing_ts = 0
 
     for fname in tweet_files:
-        path = data_dir / fname
+        path = resolved.get(fname, data_dir / fname)
         if not path.exists():
             print(f"  [warn] 缺少 {fname}，跳过")
             continue
@@ -156,36 +174,53 @@ def collect_recent_tweets(
                 buf["last_ts"] = ts
 
                 if len(buf["tw"]) < seq_len:
-                    buf["tw"].append((ts, _clean(tw.get("text")) or "",
-                                      _clean(tw.get("source")) or ""))
+                    # stats_only 下只留时间戳，不持有文本，避免百万级字符串驻留
+                    buf["tw"].append(
+                        (ts,) if stats_only
+                        else (ts, _clean(tw.get("text")) or "", _clean(tw.get("source")) or "")
+                    )
 
     n_users = 0
     n_viol_users = 0
     total_seen = 0
     total_viol = 0
-    with out_path.open("w", encoding="utf-8") as out:
-        for author, buf in buffers.items():
-            # dump 是倒序 → reverse 成时间正序；同时按 ts 排序兜底
-            items = sorted(buf["tw"], key=lambda t: t[0])
-            out.write(json.dumps({
-                "user_id": author,
-                "tweets": [t[1] for t in items],
-                "timestamps": [t[0] for t in items],
-                "sources": [t[2] for t in items],
-                "n_seen": buf["n_seen"],
-            }, ensure_ascii=False) + "\n")
-            n_users += 1
-            total_seen += buf["n_seen"]
-            total_viol += buf["violations"]
-            if buf["violations"]:
-                n_viol_users += 1
+
+    def _tally(buf: dict) -> None:
+        nonlocal n_users, n_viol_users, total_seen, total_viol
+        n_users += 1
+        total_seen += buf["n_seen"]
+        total_viol += buf["violations"]
+        if buf["violations"]:
+            n_viol_users += 1
+
+    if stats_only:
+        for buf in buffers.values():
+            _tally(buf)
+    else:
+        with out_path.open("w", encoding="utf-8") as out:
+            for author, buf in buffers.items():
+                # dump 是倒序 → 按 ts 升序排成时间正序（同时对违例情形兜底）
+                items = sorted(buf["tw"], key=lambda t: t[0])
+                out.write(json.dumps({
+                    "user_id": author,
+                    "tweets": [t[1] for t in items],
+                    "timestamps": [t[0] for t in items],
+                    "sources": [t[2] for t in items],
+                    "n_seen": buf["n_seen"],
+                }, ensure_ascii=False) + "\n")
+                _tally(buf)
 
     meta = {
+        "stats_only": stats_only,
         "n_authors": n_users,
         "n_tweets_scanned": total_tweets,
         "n_tweets_missing_ts": missing_ts,
         "seq_len": seq_len,
-        # 顺序假设的实证检验结果
+        "mean_tweets_per_author": total_seen / max(n_users, 1),
+        # --- 顺序假设的实证检验结果 ---
+        # 分母是"相邻推文对"的总数（每作者 n_seen-1 对）
+        "n_adjacent_pairs": total_seen - n_users,
+        "n_order_violations": total_viol,
         "order_violation_rate": total_viol / max(total_seen - n_users, 1),
         "frac_authors_with_violation": n_viol_users / max(n_users, 1),
     }

@@ -142,6 +142,38 @@ def iter_split(raw_dir: str | Path, split: str, seq_len: int = 16) -> Iterator[U
             )
 
 
+def dump_nodes(
+    raw_dir: str | Path,
+    out_path: str | Path,
+    splits: tuple[str, ...] = SPLITS,
+    tweet_cap: int = 200,
+) -> int:
+    """导出**全部节点**（含 support）的文本，供全量编码使用。
+
+    ⚠️ 遍历顺序与 ``graph.build_graph`` 完全一致（同一个 ``iter_split`` 与同一个
+    splits 元组），因此本文件第 i 行对应图的第 i 个节点。
+    训练脚本会通过比对 user_id 断言这一点，不要依赖"应该一致"。
+
+    每行: {"user_id", "split", "label", "description", "tweets", "n_tweets_total"}
+    """
+    out_path = Path(out_path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    n = 0
+    with out_path.open("w", encoding="utf-8") as out:
+        for split in splits:
+            for rec in iter_split(raw_dir, split, seq_len=tweet_cap):
+                out.write(json.dumps({
+                    "user_id": rec.user_id,
+                    "split": rec.split,
+                    "label": rec.label,
+                    "description": rec.description,
+                    "tweets": rec.tweets,
+                    "n_tweets_total": rec.n_tweets_total,
+                }, ensure_ascii=False) + "\n")
+                n += 1
+    return n
+
+
 def dump_ordered_tweets(
     raw_dir: str | Path,
     out_path: str | Path,
