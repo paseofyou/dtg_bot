@@ -74,6 +74,20 @@ def run_one_seed(args, data, seed: int, device: str) -> dict:
     y = data["labels"]
     tr, dv, te = data["idx"]["train"], data["idx"]["dev"], data["idx"]["test"]
 
+    # 对比损失的采样范围：train 内**有真实发帖事件**的节点。
+    # 未标注节点本就不在 tr 中（其 z_micro 为补零行，绝不参与）；但零推文的标注
+    # 用户其 z_micro 是 out_proj(0) 的同一常量向量，彼此逐元素恒等。若让它们进入
+    # InfoNCE，非对角位置上会出现数值恒等的"负样本"，交叉熵强行推开恒等向量，
+    # 梯度只能倾泻到 macro/global 分支，构成虚假的对齐压力。故一并排除。
+    cl_idx = tr
+    if "micro" in args.views and args.beta > 0 and "micro_mask" in data:
+        has_event = data["micro_mask"][tr].any(dim=1)
+        cl_idx = tr[has_event]
+        n_drop = int(tr.numel() - cl_idx.numel())
+        if n_drop:
+            print(f"  [对比损失] train 内零推文用户 {n_drop} 个已从 InfoNCE 采样中排除",
+                  flush=True)
+
     best_dev, best_state, bad = -1.0, None, 0
     for epoch in range(args.epochs):
         model.train()
@@ -82,7 +96,7 @@ def run_one_seed(args, data, seed: int, device: str) -> dict:
         loss = crit(logits[tr], y[tr])
         if views is not None and args.beta > 0 and len(views) > 1:
             loss = loss + args.beta * DTGBot.contrastive_loss(
-                {k: v[tr] for k, v in views.items()},
+                {k: v[cl_idx] for k, v in views.items()},
                 temperature=args.temperature, max_samples=args.cl_max_samples,
             )
         loss.backward()
