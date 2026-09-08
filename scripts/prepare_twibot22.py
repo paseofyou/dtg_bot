@@ -26,6 +26,8 @@ import sys
 import time
 from pathlib import Path
 
+import numpy as np
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from dtg_bot.data.encode import encode_tweets
@@ -36,6 +38,43 @@ from dtg_bot.data.twibot22 import (
     load_labels,
     load_splits,
 )
+
+
+def stratified_sample(
+    keep: set[str],
+    labels: dict[str, int],
+    splits: dict[str, str],
+    n_target: int,
+    seed: int,
+) -> set[str]:
+    """按 (split, label) 分层抽样，保持各层比例与总体一致。
+
+    为什么必须抽样而不是"只取标注用户"：TwiBot-22 的 ``label.csv`` 与 ``split.csv``
+    都恰好覆盖全部 100 万用户（已核验：两者交集 100 万、各自差集为 0，
+    train/val/test = 70 万/20 万/10 万），**不存在无标签的 support 子集**。
+    因此 ``keep = set(labels)`` 已是全量，规模压缩只能靠抽样实现。
+
+    分层而非均匀随机：bot 仅占 14%（139,943/1,000,000），
+    小样本下均匀抽样会让正类比例产生可观漂移，进而改变 F1 的基线水平，
+    使 TwiBot-22 的结果无法与 TwiBot-20 对照。
+    """
+    strata: dict[tuple[str, int], list[str]] = {}
+    for uid in keep:
+        key = (splits.get(uid, "train"), labels[uid])
+        strata.setdefault(key, []).append(uid)
+
+    rng = np.random.default_rng(seed)
+    frac = n_target / len(keep)
+    sampled: set[str] = set()
+    print(f"[sample] 分层抽样 {len(keep)} → 目标 {n_target}（比例 {frac:.4f}，seed={seed}）")
+    for key in sorted(strata):
+        members = sorted(strata[key])                     # 排序保证跨机器可复现
+        take = max(1, int(round(len(members) * frac)))
+        take = min(take, len(members))
+        chosen = rng.choice(len(members), size=take, replace=False)
+        sampled.update(members[i] for i in chosen)
+        print(f"         {key[0]:<6} label={key[1]}  {len(members):>7} → {take:>6}")
+    return sampled
 
 
 def main() -> None:
@@ -50,6 +89,11 @@ def main() -> None:
     ap.add_argument("--max-tokens", type=int, default=64)
     ap.add_argument("--tweet-files", nargs="+", default=list(TWEET_FILES))
     ap.add_argument("--max-users", type=int, default=0, help=">0 时只保留前 N 个标注用户（冒烟测试）")
+    ap.add_argument("--sample-users", type=int, default=0,
+                    help=">0 时按 (split, label) 分层抽样 N 个标注用户。"
+                         "注意 TwiBot-22 的 label.csv/split.csv 都覆盖全部 100 万用户，"
+                         "不存在无标签子集，故'只取标注用户'无法减小规模，只能抽样。")
+    ap.add_argument("--sample-seed", type=int, default=42, help="分层抽样随机种子（可复现）")
     ap.add_argument("--steps", nargs="+", default=["collect", "encode", "micro"],
                     choices=["collect", "encode", "micro"])
     ap.add_argument("--with-temporal", action="store_true",
@@ -80,6 +124,18 @@ def main() -> None:
         keep = set(labels)
         if args.max_users:
             keep = set(sorted(keep)[: args.max_users])
+        if args.sample_users and args.sample_users < len(keep):
+            keep = stratified_sample(keep, labels, splits, args.sample_users, args.sample_seed)
+            # 抽样名单落盘：encode/micro 依赖 collect 产出的 jsonl，本身自动一致；
+            # 单独存一份是为了让论文结果可追溯到确切的用户集合。
+            (cache / f"sampled_users_{tag}.json").write_text(
+                json.dumps({"n": len(keep), "seed": args.sample_seed,
+                            "ids": sorted(keep)}, indent=2), encoding="utf-8")
+        elif not args.max_users:
+            print("[collect] ⚠️ 未指定 --sample-users，将收集全部标注用户。"
+                  "TwiBot-22 的标注集即全量 100 万用户（无 support 子集），"
+                  "文本驻留内存约 6~10GB，且后续编码约 1500 万条推文。"
+                  "如只需微观诊断实验，建议加 --sample-users 100000。")
         print(f"[collect] 标注用户 {len(labels)}，本次收集 {len(keep)}；"
               f"扫描 {len(args.tweet_files)} 个 tweet 文件")
 

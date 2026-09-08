@@ -32,10 +32,16 @@ TwiBot-22 已实测 dump 近似保序（全量 88.2M 推文、相邻对违例率
 
 产物：逐种子结果追加到 results.csv（experiment='order_dt'）。
 
+样本规模：TwiBot-22 的 label.csv 与 split.csv 都覆盖全部 100 万用户
+（train/val/test = 70 万/20 万/10 万，无 support 子集），因此"只取标注用户"
+无法压缩规模。本实验只需微观分支的独立分类器，故按 (split, label) 分层
+抽样 10 万用户——仍是 TwiBot-20 全量（11,826）的 8 倍，统计功效充裕，
+而推文量从约 1500 万降到约 160 万。
+
 用法（AutoDL，L=16 与 collect/encode 一致）：
     WORK=/root/autodl-tmp/dtg_bot
     python scripts/prepare_twibot22.py --work-dir $WORK --steps collect \
-        --seq-len 16                                    # 带 timestamps，勿用 --stats-only
+        --seq-len 16 --sample-users 100000              # 带 timestamps，勿用 --stats-only
     python scripts/prepare_twibot22.py --work-dir $WORK --steps encode \
         --seq-len 16 --batch-size 384
     python scripts/prepare_twibot22.py --work-dir $WORK --steps micro \
@@ -121,7 +127,8 @@ def main() -> None:
     ap.add_argument("--layers", type=int, default=2)
     ap.add_argument("--heads", type=int, default=4)
     ap.add_argument("--dropout", type=float, default=0.1)
-    ap.add_argument("--results", default="./experiments/results.csv")
+    ap.add_argument("--results", default="./experiments/results_t22_dt.csv",
+                    help="独立存档，避免与 TwiBot-20 的主 results.csv 混杂")
     args = ap.parse_args()
 
     cache = Path(args.cache)

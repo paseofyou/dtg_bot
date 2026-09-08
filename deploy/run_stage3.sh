@@ -34,6 +34,13 @@ SEQ_LEN="${SEQ_LEN:-16}"
 BATCH_SIZE="${BATCH_SIZE:-384}"
 SEEDS="${SEEDS:-42 123 456 789 2024 7 13 99 2025 314 1618 271 577 999 8128}"
 STEPS="${STEPS:-collect encode micro diag}"
+# TwiBot-22 的 label.csv/split.csv 都覆盖全部 100 万用户（无 support 子集），
+# 故"只取标注用户"无法压缩规模，只能分层抽样。10 万用户已远超统计需要
+# （TwiBot-20 全量仅 11,826），却把推文量压到约 160 万、编码时间压到约 40 分钟。
+SAMPLE_USERS="${SAMPLE_USERS:-100000}"
+SAMPLE_SEED="${SAMPLE_SEED:-42}"
+# 结果单独存档，避免与 TwiBot-20 的主 results.csv 混杂
+RESULTS="${RESULTS:-$CODE_DIR/experiments/results_t22_dt.csv}"
 
 SUMMARY="$LOGS/stage3_summary.log"
 : > "$SUMMARY"
@@ -46,14 +53,18 @@ export PYTORCH_CUDA_ALLOC_CONF="${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:T
 
 log "=============================================================="
 log " DTG-Bot 阶段 3 (TwiBot-22 order-vs-Δt)  WORK=$WORK  L=$SEQ_LEN"
-log " STEPS=$STEPS"
+log " STEPS=$STEPS  SAMPLE_USERS=$SAMPLE_USERS (seed=$SAMPLE_SEED)"
+log " RESULTS=$RESULTS"
 log "=============================================================="
 
 # ---------- P1 collect：抽取最近 L 条推文 + 真实时间戳 ----------
+# 注意：仍需单遍扫完全部 101GB（无法预知某作者的推文落在哪个文件），
+# 抽样压缩的是**保留量**（内存与后续编码量），不是扫描量。
 if has_step collect; then
-  log "----- P1 collect（预计 3~6h，101GB 单遍扫描）-----"
+  log "----- P1 collect（仍需单遍扫描 101GB，约 3~6h；保留 $SAMPLE_USERS 个作者）-----"
   python scripts/prepare_twibot22.py --work-dir "$WORK" \
       --seq-len "$SEQ_LEN" --steps collect \
+      --sample-users "$SAMPLE_USERS" --sample-seed "$SAMPLE_SEED" \
       > "$LOGS/t22_collect.log" 2>&1
   rc=$?
   if [ $rc -ne 0 ]; then
@@ -65,7 +76,7 @@ fi
 
 # ---------- P2 encode：RoBERTa 逐条编码 ----------
 if has_step encode; then
-  log "----- P2 encode（约 1600 万条推文，3090 约 6h）-----"
+  log "----- P2 encode（抽样后约 160 万条推文，3090 约 40min）-----"
   python scripts/prepare_twibot22.py --work-dir "$WORK" \
       --seq-len "$SEQ_LEN" --steps encode --batch-size "$BATCH_SIZE" \
       > "$LOGS/t22_encode.log" 2>&1
@@ -96,7 +107,7 @@ fi
 if has_step diag; then
   log "----- P4 order-vs-Δt 对照（6 变体 × 15 种子）-----"
   python scripts/diagnose_order_dt.py --cache "$CACHE" --seq-len "$SEQ_LEN" \
-      --seeds $SEEDS --results "$CODE_DIR/experiments/results.csv" \
+      --seeds $SEEDS --results "$RESULTS" \
       > "$LOGS/t22_order_dt.log" 2>&1
   rc=$?
   if [ $rc -ne 0 ]; then
@@ -107,6 +118,6 @@ if has_step diag; then
 fi
 
 log "=============================================================="
-log " 阶段 3 结束。逐种子结果见 experiments/results.csv (experiment=order_dt)"
+log " 阶段 3 结束。逐种子结果见 $RESULTS"
 log " 完整摘要： $SUMMARY"
 log "=============================================================="
