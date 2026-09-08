@@ -51,6 +51,13 @@ SAMPLE_USERS="${SAMPLE_USERS:-100000}"
 SAMPLE_SEED="${SAMPLE_SEED:-42}"
 # 结果单独存档，避免与 TwiBot-20 的主 results.csv 混杂
 RESULTS="${RESULTS:-$CODE_DIR/experiments/results_t22_dt.csv}"
+# P4 的瓶颈不是 GPU 算力而是 Python 循环 + kernel 启动开销：抽样后 train=7 万、
+# 模型仅几十万参数，batch=256 时每 epoch 要启动 ~274 次小 kernel，GPU 利用率仅 7%。
+# 提高到 2048 把 batch 数压到 ~35/epoch，单变体耗时约降 8 倍。
+# ⚠️ batch_size 是超参不是纯速度旋钮：若中断后想用新值续跑，必须先删掉
+#    results_t22_dt.csv 重跑全部 90 行，否则同一比较内的种子混用了不同超参，
+#    配对检验无效。
+DIAG_BATCH="${DIAG_BATCH:-256}"
 
 SUMMARY="$LOGS/stage3_summary.log"
 : > "$SUMMARY"
@@ -117,7 +124,7 @@ fi
 if has_step diag; then
   log "----- P4 order-vs-Δt 对照（6 变体 × 15 种子）-----"
   python scripts/diagnose_order_dt.py --cache "$CACHE" --seq-len "$SEQ_LEN" \
-      --seeds $SEEDS --results "$RESULTS" \
+      --seeds $SEEDS --results "$RESULTS" --batch-size "$DIAG_BATCH" \
       > "$LOGS/t22_order_dt.log" 2>&1
   rc=$?
   if [ $rc -ne 0 ]; then
