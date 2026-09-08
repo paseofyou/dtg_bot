@@ -45,6 +45,22 @@ def _clean(value) -> str | None:
     return None if text in ("", "None", "null") else text
 
 
+def bare_uid(value) -> str:
+    """统一用户 id 形式。
+
+    ⚠️ TwiBot-22 的 id 形式在文件之间**不一致**（已核验）：
+        ``label.csv`` / ``split.csv`` / ``user.json``  →  ``"u1217628182611927040"``（带 u 前缀）
+        ``tweet_*.json`` 的 ``author_id``              →  ``1304855289208819713``（裸整数）
+        ``tweet_*.json`` 的 ``id``                     →  ``"t1497798545872588801"``（带 t 前缀）
+
+    早先未做归一化时，``keep_users``（u 前缀）与 ``author_id``（裸整数）永远匹配不上，
+    8.2M+ 条推文被全部过滤掉，统计结果为 0/0，而 0/0 的违例率恰好通过
+    "< 0.1% 即保序"的判据，打印出完全虚假的 [ORDER-PRESERVED] 结论。
+    """
+    text = str(value).strip()
+    return text[1:] if text[:1] == "u" and text[1:].isdigit() else text
+
+
 def parse_ts(value) -> datetime | None:
     """解析 ``"2022-02-27 04:59:35+00:00"`` 或 ISO8601 变体。"""
     text = _clean(value)
@@ -136,6 +152,14 @@ def collect_recent_tweets(
     resolved_dirs = sorted({str(p.parent) for p in resolved.values()})
     print(f"[collect] 解析到 {len(resolved)} 个 tweet 文件，所在目录: {resolved_dirs}")
 
+    # id 归一化：keep_users 来自 label.csv（u 前缀），author_id 是裸整数。
+    # 建立 裸 id → 原始 id 的映射，比对用裸 id，写盘时还原成下游期望的原始 id。
+    bare_to_orig: dict[str, str] | None = None
+    if keep_users is not None:
+        bare_to_orig = {bare_uid(u): u for u in keep_users}
+        print(f"[collect] keep_users 已归一化：{len(keep_users)} → {len(bare_to_orig)} 个裸 id"
+              f"（示例 {next(iter(bare_to_orig.items()))}）")
+
     # author -> {"tw": [(ts, text, source)...], "n_seen": int, "violations": int, "last_ts": float}
     buffers: dict[str, dict] = {}
     total_tweets = 0
@@ -153,7 +177,8 @@ def collect_recent_tweets(
                 author = _clean(tw.get("author_id"))
                 if author is None:
                     continue
-                if keep_users is not None and author not in keep_users:
+                author = bare_uid(author)
+                if bare_to_orig is not None and author not in bare_to_orig:
                     continue
                 total_tweets += 1
 
@@ -202,13 +227,26 @@ def collect_recent_tweets(
                 # dump 是倒序 → 按 ts 升序排成时间正序（同时对违例情形兜底）
                 items = sorted(buf["tw"], key=lambda t: t[0])
                 out.write(json.dumps({
-                    "user_id": author,
+                    # 还原成下游（label/split/图）使用的原始 id 形式
+                    "user_id": bare_to_orig.get(author, author) if bare_to_orig else author,
                     "tweets": [t[1] for t in items],
                     "timestamps": [t[0] for t in items],
                     "sources": [t[2] for t in items],
                     "n_seen": buf["n_seen"],
                 }, ensure_ascii=False) + "\n")
                 _tally(buf)
+
+    # ⚠️ 零匹配必须硬失败，绝不能返回 0/0 的统计量。
+    # 0/0 的违例率为 0.0，会通过"< 0.1% 即保序"的判据，产出完全虚假的
+    # [ORDER-PRESERVED] 结论并被写入论文（已踩过：id 前缀不一致导致 8.2M 条
+    # 推文全部被过滤，日志却报告"列表保序假设成立"）。
+    if total_tweets == 0 or n_users == 0:
+        raise RuntimeError(
+            f"扫描到 {total_tweets} 条推文、{n_users} 个作者——零匹配。\n"
+            f"tweet 文件已成功读取，故问题在于 author_id 与 keep_users 的 id 形式"
+            f"不一致（TwiBot-22 中 label.csv 为 'u<数字>'，author_id 为裸整数）。\n"
+            f"请检查 bare_uid() 归一化是否生效；在修复前任何顺序性结论均不成立。"
+        )
 
     meta = {
         "stats_only": stats_only,
