@@ -155,7 +155,24 @@ tweet_0..8.json 共 ~101GB, hashtag.json, list.json
 ```
 
 推文对象含真实 `created_at`（`"2022-02-27 04:59:35+00:00"`）、`author_id`、`source`、
-`entities`、`public_metrics`。**同一 author_id 的推文在 dump 中已按时间倒序排列。**
+`entities`、`public_metrics`。**同一 author_id 的推文在 dump 中已按时间倒序排列**
+（全量实测相邻对违例率 3.29%，见上文）。
+
+⚠️ **T22 没有 support / 无标签子集**（已核验，不要再假设它像 T20 那样有）：
+
+```
+label.csv  1,000,000 行   human 860,057 / bot 139,943
+split.csv  1,000,000 行   train 700,000 / val 200,000 / test 100,000
+label ∩ split = 1,000,000    label-only = 0    split-only = 0
+```
+
+推论：`keep_users = set(labels)` **已经是全量 100 万**，
+"只保留标注用户以减小规模"是空操作（上次扫描得到 93.4 万作者就是这个原因）。
+要压缩规模只能**分层抽样**（`--sample-users`）。
+
+⚠️ **bot 比例在各 split 间差异极大**：train 7.8% / val 28.0% / test 29.4%。
+所以抽样必须按 `(split, label)` 分层，均匀随机抽样会改变正类比例、
+使 F1 基线漂移，无法与 TwiBot-20 对照。
 
 → TwiBot-22 同时拥有真实时间戳和列表顺序，因此它是「仅用顺序 vs 用真实时间戳」
 信息差实验的验证台，这是论文"无需精确时间戳"论点的正面证据来源。
