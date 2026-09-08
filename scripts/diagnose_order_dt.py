@@ -158,25 +158,6 @@ def main() -> None:
     device = "cuda" if torch.cuda.is_available() else "cpu"
     print(f"device={device}")
 
-    # ---- 断点续跑：跳过 results 文件中已存在的 (variant, seed)，
-    #      并把历史行读回 collected，保证末尾的汇总与配对检验基于全部种子 ----
-    done: set[tuple[str, int]] = set()
-    prev_rows: dict[str, list[dict]] = {}
-    res_path = Path(args.results)
-    if res_path.exists():
-        import csv as _csv
-        with res_path.open("r", encoding="utf-8") as fh:
-            for row in _csv.DictReader(fh):
-                if row.get("experiment") == "order_dt" and row.get("seed"):
-                    key = (row["variant"], int(row["seed"]))
-                    done.add(key)
-                    num = {k: float(v) for k, v in row.items()
-                           if k in ("accuracy", "precision", "recall", "f1", "mcc",
-                                    "auc", "best_dev_f1", "seed") and v not in ("", None)}
-                    prev_rows.setdefault(row["variant"], []).append(num)
-        if done:
-            print(f"[resume] 跳过已完成 {len(done)} 个 (variant, seed)")
-
     collected: dict[str, list[dict]] = {}
     for name, group, seq_model, order_mode in FACTORIAL:
         if name not in args.variants:
@@ -185,10 +166,7 @@ def main() -> None:
         variant = {"seq_model": seq_model, "order_mode": order_mode}
         rows = []
         for seed in args.seeds:
-            if (name, seed) in done:
-                continue
             res = run_one(feat, mask, labels, idx, meta, variant, seed, args, device)
-            res["seed"] = seed
             rows.append(res)
             append_result(args.results, {
                 "dataset": args.dataset, "experiment": "order_dt",
@@ -198,8 +176,8 @@ def main() -> None:
             })
             print(f"  {name:<13} seed={seed:<5} f1={res['f1']:.4f} "
                   f"acc={res['accuracy']:.4f} auc={res['auc']:.4f}")
-        collected[name] = prev_rows.get(name, []) + rows
-        print(f"  {name:<13} → {summarize(collected[name])}\n")
+        collected[name] = rows
+        print(f"  {name:<13} → {summarize(rows)}\n")
 
     print("=" * 78)
     print("汇总 (mean ± std)")
@@ -208,9 +186,6 @@ def main() -> None:
         print(f"  {name:<13} F1 {s['f1']:<16} Acc {s['accuracy']:<16} AUC {s.get('auc', '-')}")
 
     # ---- 计划内比较：配对 t 检验 + 族内 Holm 校正 ----
-    # 配对依赖逐种子对齐，必须按 seed 排序后比较（断点续跑时历史行与新行混杂）
-    for rows in collected.values():
-        rows.sort(key=lambda r: r.get("seed", 0))
     print("\n" + "=" * 78)
     print(f"配对 t 检验（n={len(args.seeds)}，族内 Holm 校正，m={len(COMPARISONS)}×2）")
     print("=" * 78)
@@ -219,12 +194,8 @@ def main() -> None:
         for a, b, desc in COMPARISONS:
             if a not in collected or b not in collected:
                 continue
-            # 仅对两组都完成的种子做配对
-            sa = {int(r["seed"]): r for r in collected[a]}
-            sb = {int(r["seed"]): r for r in collected[b]}
-            common = sorted(sa.keys() & sb.keys())
-            xa = np.array([sa[s][metric] for s in common]) * 100
-            xb = np.array([sb[s][metric] for s in common]) * 100
+            xa = np.array([r[metric] for r in collected[a]]) * 100
+            xb = np.array([r[metric] for r in collected[b]]) * 100
             t, p = stats.ttest_rel(xa, xb)
             rows_all.append((metric, a, b, desc, xa.mean() - xb.mean(), t, p))
     pvals = np.array([r[6] for r in rows_all])

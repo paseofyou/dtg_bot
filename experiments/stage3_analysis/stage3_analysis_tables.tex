@@ -1,0 +1,36 @@
+% 自动生成的 Stage-3 表格
+
+\begin{table}[htbp]
+\centering
+\caption{TwiBot-22 order-vs-$\Delta t$ 变体结果（\%，15 种子）}
+\begin{tabular}{lccc}
+\toprule
+变体 & Accuracy & F1 & AUC \\
+\midrule
+keep_base & 71.97 ± 0.42 & 12.07 ± 2.37 & 56.48 ± 0.60 \\
+shuffle_base & 72.48 ± 0.58 & 8.45 ± 3.46 & 56.46 ± 1.23 \\
+bag_base & 73.42 ± 0.05 & 2.45 ± 0.93 & 58.45 ± 0.32 \\
+keep_dt & 71.05 ± 0.56 & 17.00 ± 1.68 & 58.10 ± 0.84 \\
+shuffle_dt & 71.59 ± 0.77 & 15.17 ± 3.67 & 58.81 ± 1.21 \\
+bag_dt & 73.50 ± 0.08 & 3.47 ± 1.05 & 62.31 ± 0.29 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+
+\begin{table}[htbp]
+\centering
+\caption{TwiBot-22 order-vs-$\Delta t$ 配对 t 检验（a - b，\%，15 种子）}
+\begin{tabular}{lccccc}
+\toprule
+对比 & $\Delta$F1 & $p_{\text{holm}}$ & $\Delta$AUC & $p_{\text{holm}}$ & 备注 \\
+\midrule
+keep_dt - keep_base & +4.928 & 0.0002$^{***}$ & +1.619 & 0.0003$^{***}$ & 真实时间通道的净增量（主问题） \\
+bag_dt - bag_base & +1.024 & 0.0415$^{*}$ & +3.861 & <1e-15$^{***}$ & 无注意力时的时间通道净增量 \\
+keep_base - shuffle_base & +3.626 & 0.0076$^{**}$ & +0.012 & 0.9718 n.s. & T22 上的纯次序效应 \\
+keep_dt - shuffle_dt & +1.832 & 0.1193 n.s. & -0.712 & 0.1853 n.s. & 加入时间特征后的次序效应 \\
+keep_dt - bag_dt & +13.529 & 1.02e-13$^{***}$ & -4.218 & 6.29e-11$^{***}$ & 时间特征下注意力聚合的价值 \\
+keep_base - bag_base & +9.625 & 5.92e-10$^{***}$ & -1.977 & 6.94e-08$^{***}$ & 无时间特征时注意力聚合的价值 \\
+\bottomrule
+\end{tabular}
+\end{table}
