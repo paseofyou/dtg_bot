@@ -14,6 +14,16 @@
 # ⚠️ P1 必须**不带** --stats-only：之前只跑违例率统计时用了该开关，
 #    它不写 jsonl；本阶段需要文本与时间戳落盘。
 #
+# ---------- 算力需求评估（Hardware Sizing，AGENTS.md 规则 A）----------
+# [推荐卡型]     RTX 3060 / 2080Ti / 3080（12GB 足够）；P2 编码吞吐随 GPU 提升
+# [预期显存占用] P4 诊断 < 1GB（10 万 × 16 × 18 fp32 ≈ 115MB 特征 + 小模型）；
+#                P2 编码 < 8GB（roberta-base fp16, batch 384）
+# [瓶颈类型]     P1=IO 密集型（101GB 单遍扫描，GPU 闲置，尽量选高带宽存储）；
+#                P2=GPU 密集型；P3=CPU 密集型；P4=GPU/CPU 均轻
+# 本阶段不含图分支，不需要 24GB 卡——全程可在 12GB 低成本实例上完成。
+# 唯一例外：若 --sample-users 0（全量 100 万）则 P1 内存 6~10GB、P2 编码 ~6h。
+# --------------------------------------------------------------------
+#
 # 用法：
 #   source /root/autodl-tmp/dtg_bot/env.sh
 #   nohup bash deploy/run_stage3.sh /root/autodl-tmp/dtg_bot > /root/stage3.out 2>&1 &
