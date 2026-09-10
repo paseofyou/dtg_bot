@@ -89,7 +89,6 @@ PY
 # ---------- 5. 数据完整性 ----------
 echo "[5/6] 数据完整性检查"
 T20="$WORK/data/twibot20"
-T22="$WORK/data/twibot22"
 ok=1
 for f in train.json dev.json test.json support.json; do
   if [ -f "$T20/$f" ]; then
@@ -98,16 +97,6 @@ for f in train.json dev.json test.json support.json; do
     echo "  ❌ 缺少 $T20/$f"; ok=0
   fi
 done
-if [ -d "$T22" ]; then
-  for f in user.json label.csv split.csv edge.csv; do
-    [ -f "$T22/$f" ] && printf "  T22 %-14s %s\n" "$f" "$(du -h "$T22/$f" | cut -f1)" \
-      || echo "  ⚠️  缺少 $T22/$f（仅影响 TwiBot-22 任务）"
-  done
-  n_tw=$(ls "$T22"/tweet_*.json 2>/dev/null | wc -l)
-  echo "  T22 tweet_*.json 共 $n_tw 个（应为 9）"
-else
-  echo "  ⚠️  $T22 不存在，TwiBot-22 任务将不可用"
-fi
 [ "$ok" = "1" ] || { echo "❌ TwiBot-20 数据不完整，退出"; exit 1; }
 
 # ---------- 6. 磁盘空间 ----------
@@ -115,7 +104,7 @@ echo "[6/6] 磁盘空间"
 df -h "$WORK" | tail -1 | awk '{print "  可用 " $4 " / 总计 " $2 " (已用 " $5 ")"}'
 avail_gb=$(df -BG "$WORK" | tail -1 | awk '{gsub("G","",$4); print $4}')
 if [ "$avail_gb" -lt 30 ]; then
-  echo "  ⚠️  可用空间不足 30GB，产物约需 5GB（T20）/ 30GB（T22）"
+  echo "  ⚠️  可用空间不足 30GB，TwiBot-20 产物约需 5GB"
 fi
 
 echo

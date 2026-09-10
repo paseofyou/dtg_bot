@@ -14,7 +14,5 @@
 | 论文结论 | 数据来源 | 分析脚本 |
 |---|---|---|
 | 表 4/5 T20 顺序诊断 | `results.csv`（diagnose_order） | `scripts/diagnose_order.py` |
-| 表 6 T22 有序性 | collect meta（stats-only 全量扫描） | `scripts/prepare_twibot22.py` |
-| 表 7/8 T22 order-vs-Δt | `experiments/results_t22_dt.csv` | `scripts/analyze_stage3.py` |
 | 表 2,3,9,10,11 T20 主实验+消融 | `experiments/stage{1,2}_*_seedwise.csv` | `scripts/paired_stats.py` |
 | 图 2/图 3 | 同上逐种子数据 | `scripts/plot_ablation.py` |

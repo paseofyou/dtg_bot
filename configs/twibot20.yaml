@@ -37,5 +37,5 @@ train:
   weight_decay: 0.05
   epochs: 150
   patience: 30
-  select_metric: f1
+  select_metric: accuracy
   seeds: [42, 123, 456, 789, 2024]

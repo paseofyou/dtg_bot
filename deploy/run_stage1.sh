@@ -1,12 +1,10 @@
 #!/usr/bin/env bash
 # 阶段 1：TwiBot-20 全量编码 + BotRGCN 基线复现（GPU 任务）
-#         并行启动 TwiBot-22 违例率统计（CPU/IO 任务）
 #
 # 无人值守设计：
 #   - 全部输出重定向到 $WORK/logs/*.log
 #   - 每步结束打印状态摘要，可直接抓日志贴回
 #   - 编码步骤支持断点续跑：重复执行本脚本即可从中断处继续
-#   - GPU 任务串行、CPU 任务并行，避免互相拖慢
 #
 # 用法：
 #   source /root/autodl-tmp/dtg_bot/env.sh
@@ -24,7 +22,6 @@ POOL_CAP="${POOL_CAP:-20}"
 BATCH_SIZE="${BATCH_SIZE:-256}"
 SEQ_LEN="${SEQ_LEN:-32}"
 SEEDS="${SEEDS:-42 123 456 789 2024 7 13 99 2025 314 1618 271 577 999 8128}"
-RUN_T22="${RUN_T22:-1}"
 
 SUMMARY="$LOGS/stage1_summary.log"
 : > "$SUMMARY"
@@ -38,21 +35,6 @@ log "=============================================================="
 
 cd "$CODE_DIR"
 export PYTHONPATH="$CODE_DIR/src:${PYTHONPATH:-}"
-
-# ---------------------------------------------------------------
-# 任务 B（并行，CPU/IO）：TwiBot-22 时间戳违例率
-# ---------------------------------------------------------------
-T22_PID=""
-if [ "$RUN_T22" = "1" ] && [ -d "$WORK/data/twibot22" ]; then
-  log "[B] 后台启动 TwiBot-22 违例率统计 (stats-only) → $LOGS/t22_violation.log"
-  nohup python scripts/prepare_twibot22.py \
-      --work-dir "$WORK" --steps collect --stats-only --seq-len 16 \
-      > "$LOGS/t22_violation.log" 2>&1 &
-  T22_PID=$!
-  log "[B] PID=$T22_PID （预计 1.5~2.5h，与 GPU 任务并行）"
-else
-  log "[B] 跳过 TwiBot-22（未找到数据或 RUN_T22=0）"
-fi
 
 # ---------------------------------------------------------------
 # 任务 A1（GPU）：TwiBot-20 全量预处理
@@ -100,16 +82,6 @@ elif grep -q "BASELINE-MARGINAL" "$LOGS/t20_baseline.log"; then
 else
   log "[A2] 基线达标，可进入阶段 2（本文模型与消融）"
   BASELINE_OK=1
-fi
-
-# ---------------------------------------------------------------
-# 等待任务 B
-# ---------------------------------------------------------------
-if [ -n "$T22_PID" ]; then
-  log "[B] 等待 TwiBot-22 违例率统计完成 (PID=$T22_PID) ..."
-  wait "$T22_PID"
-  log "[B] 结果："
-  sed -n '/顺序假设实证检验/,$p' "$LOGS/t22_violation.log" | tee -a "$SUMMARY"
 fi
 
 log "=============================================================="

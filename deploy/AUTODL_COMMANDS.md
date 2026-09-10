@@ -6,7 +6,7 @@
 
 ```bash
 WORK=/root/autodl-tmp/dtg_bot
-mkdir -p $WORK/{code,data/twibot20,data/twibot22}
+mkdir -p $WORK/{code,data/twibot20}
 
 # 代码（三种任选）
 #   a) git clone <你的仓库> $WORK/code
@@ -18,10 +18,9 @@ mkdir -p $WORK/{code,data/twibot20,data/twibot22}
 
 ```
 $WORK/data/twibot20/{train,dev,test,support}.json
-$WORK/data/twibot22/{user.json,label.csv,split.csv,edge.csv,tweet_0..8.json}
 
 # 已有数据在别处时用软链，避免重复占盘：
-# ln -s /root/autodl-tmp/twibot22/data/* $WORK/data/twibot22/
+# ln -s /root/autodl-tmp/twibot20/data/* $WORK/data/twibot20/
 ```
 
 ## 1. 环境准备（约 15 分钟）
@@ -152,19 +151,4 @@ print((100*g.xs('mean',level=1,axis=1)).round(2).to_string())
 PY
 ```
 
-## 5. 阶段 3：TwiBot-22 完整实验
 
-```bash
-source $WORK/env.sh && cd $WORK/code
-
-# 完整 collect（含文本，约 5GB 内存；若 OOM 见下）
-nohup python scripts/prepare_twibot22.py --work-dir $WORK \
-    --steps collect encode micro --seq-len 16 --batch-size 384 \
-    > $WORK/logs/t22_prepare.log 2>&1 &
-
-# order-vs-Δt：加真实时间通道再做一份 micro 特征
-python scripts/prepare_twibot22.py --work-dir $WORK --steps micro \
-    --with-temporal --seq-len 16 >> $WORK/logs/t22_prepare.log 2>&1
-```
-
-若 `collect` 因内存被 kill：把 `--seq-len` 降到 8，或按 `--tweet-files` 分批扫描后合并。

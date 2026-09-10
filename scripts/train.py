@@ -10,7 +10,7 @@
     # 单视图消融
     python scripts/train.py --work-dir $WORK --model dtg --views global --tag graph_only
 
-评估协议（见 AGENTS.md）：按 dev F1 选检查点，test 只在最后评估一次；
+评估协议（见 AGENTS.md）：按 dev Accuracy 选检查点，test 只在最后评估一次；
 关键对比用 15 个种子并做配对 t 检验。
 """
 
@@ -87,11 +87,11 @@ def run_one_seed(args, data, seed: int, device: str) -> dict:
             logits = model(data) if args.model == "dtg" else model(
                 data["des"], data["tweet"], data["num_prop"], data["cat_prop"],
                 data["edge_index"], data["edge_type"])
-            dev_f1 = compute_metrics(
+            dev_acc = compute_metrics(
                 y[dv].cpu().numpy(), logits[dv].argmax(1).cpu().numpy()
-            )["f1"]
-        if dev_f1 > best_dev:
-            best_dev, bad = dev_f1, 0
+            )["accuracy"]
+        if dev_acc > best_dev:
+            best_dev, bad = dev_acc, 0
             best_state = {k: v.detach().clone() for k, v in model.state_dict().items()}
         else:
             bad += 1
@@ -107,7 +107,7 @@ def run_one_seed(args, data, seed: int, device: str) -> dict:
         prob = torch.softmax(logits[te], dim=1)[:, 1]
     res = compute_metrics(y[te].cpu().numpy(), logits[te].argmax(1).cpu().numpy(),
                           prob.cpu().numpy())
-    res["best_dev_f1"] = best_dev
+    res["best_dev_acc"] = best_dev
     res["epochs_run"] = epoch + 1
     return res
 
@@ -145,6 +145,9 @@ def main() -> None:
     ap.add_argument("--epochs", type=int, default=300)
     ap.add_argument("--patience", type=int, default=40)
     ap.add_argument("--grad-clip", type=float, default=1.0)
+    ap.add_argument("--select-metric", default="accuracy",
+                    choices=["accuracy", "f1", "mcc", "auc"],
+                    help="验证集选检查点的指标（默认 accuracy）")
     ap.add_argument("--seeds", nargs="+", type=int,
                     default=[42, 123, 456, 789, 2024, 7, 13, 99, 2025, 314,
                              1618, 271, 577, 999, 8128])

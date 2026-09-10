@@ -54,9 +54,9 @@ def train_micro(feat, mask, labels, idx, meta, args, device):
         model.eval()
         with torch.no_grad():
             dev_pred = model(x[dv], m[dv]).argmax(1)
-        dev_f1 = compute_metrics(y[dv].cpu().numpy(), dev_pred.cpu().numpy())["f1"]
-        if dev_f1 > best_dev:
-            best_dev, bad = dev_f1, 0
+        dev_acc = compute_metrics(y[dv].cpu().numpy(), dev_pred.cpu().numpy())["accuracy"]
+        if dev_acc > best_dev:
+            best_dev, bad = dev_acc, 0
             best_state = {k: v.detach().clone() for k, v in model.state_dict().items()}
         else:
             bad += 1
