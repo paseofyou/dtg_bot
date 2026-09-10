@@ -88,6 +88,10 @@ def main():
     args = ap.parse_args()
 
     feat, mask, labels, idx, meta = load_data(Path(args.cache), args.seq_len)
+    mean = np.array(meta["mean"])
+    std = np.array(meta["std"])
+    ch_names = list(meta["channel_names"])
+    trans_idx = {c: ch_names.index(c) for c in ["cos_prev", "l2_prev", "jaccard_prev", "rt_run"]}
     device = "cuda" if torch.cuda.is_available() else "cpu"
     print(f"训练微观注意力模型（seed={args.seed}）...")
     model = train_micro(feat, mask, labels, idx, meta, args, device)
@@ -110,20 +114,27 @@ def main():
     jsonl = Path(args.cache) / f"tweets_L{args.seq_len}.jsonl"
     records = [json.loads(line) for line in Path(jsonl).read_text(encoding="utf-8").splitlines()]
 
+    raw = feat * std + mean                 # 反标准化为原始事件通道
+    raw_sel = raw[sel]
+
+    def _event(pos_in_batch: int, i: int):
+        return {
+            "pos": int(i),
+            "weight": float(w[pos_in_batch, i]),
+            "text": rec["tweets"][i] if i < len(rec["tweets"]) else "",
+            "cos_prev": float(raw_sel[pos_in_batch, i, trans_idx["cos_prev"]]),
+            "l2_prev": float(raw_sel[pos_in_batch, i, trans_idx["l2_prev"]]),
+            "jaccard": float(raw_sel[pos_in_batch, i, trans_idx["jaccard_prev"]]),
+            "rt_run": float(raw_sel[pos_in_batch, i, trans_idx["rt_run"]]),
+        }
+
     out = []
     for pos, uid in enumerate(sel):
         n_valid = int(mask[uid].sum())
-        top_idx = np.argsort(w[pos, :n_valid])[-args.top_k:][::-1]
         rec = records[uid]
-        events = [
-            {
-                "rank": r + 1,
-                "pos": int(top_idx[r]),
-                "weight": float(w[pos, top_idx[r]]),
-                "text": rec["tweets"][top_idx[r]] if top_idx[r] < len(rec["tweets"]) else "",
-            }
-            for r in range(len(top_idx))
-        ]
+        all_events = [_event(pos, i) for i in range(n_valid)]
+        top_idx = np.argsort(w[pos, :n_valid])[-args.top_k:][::-1]
+        top_k_events = [all_events[int(i)] for i in top_idx]
         out.append({
             "user_id": rec.get("user_id"),
             "split": rec.get("split"),
@@ -131,8 +142,8 @@ def main():
             "pred": int(preds[pos]),
             "n_tweets": n_valid,
             "n_tweets_total": rec.get("n_tweets_total"),
-            "top_k_events": events,
-            "all_weights": [float(w[pos, i]) for i in range(n_valid)],
+            "top_k_events": top_k_events,
+            "all_events": all_events,
         })
 
     out_path = Path(args.out)
