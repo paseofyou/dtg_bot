@@ -29,7 +29,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 import numpy as np
 
 from dtg_bot.data.encode import encode_field, encode_pooled, encode_tweets
-from dtg_bot.data.graph import build_graph, snapshot_edge_masks
+from dtg_bot.data.graph import (
+    build_graph,
+    build_snapshot_properties,
+    save_snapshot_properties,
+)
 from dtg_bot.data.micro import build_micro_features
 from dtg_bot.data.twibot20 import LABELED_SPLITS, SPLITS, dump_nodes, dump_ordered_tweets
 
@@ -55,6 +59,8 @@ def main() -> None:
     ap.add_argument("--pool-cap", type=int, default=20,
                     help="参与池化的推文条数上限；0 = 不设上限（约 12h @3090）")
     ap.add_argument("--num-snapshots", type=int, default=8)
+    ap.add_argument("--interval", default="year", choices=["year", "month"],
+                    help="BotDGT 快照时间区间粒度")
     ap.add_argument("--model", default="roberta-base")
     ap.add_argument("--batch-size", type=int, default=256)
     ap.add_argument("--max-tokens", type=int, default=64)
@@ -116,14 +122,20 @@ def main() -> None:
                f"标注 {meta['n_labeled']} (bot {meta['n_bot']} / human {meta['n_human']})")
         summary["graph"] = meta
 
-        masks, cutoffs = snapshot_edge_masks(
+        # BotDGT 原装快照属性（按 year/month 区间切分 + 聚类系数/双向链接比）
+        t0 = time.time()
+        props = build_snapshot_properties(
             np.load(graph_dir / "edge_index.npy"),
+            np.load(graph_dir / "edge_type.npy"),
             np.load(graph_dir / "created_ts.npy"),
-            args.num_snapshots,
+            num_snapshots=args.num_snapshots,
+            interval=args.interval,
+            following_relation=0,
         )
-        np.save(graph_dir / "snapshot_cutoffs.npy", cutoffs)
-        cover = [round(float(m.mean()), 4) for m in masks]
-        _stamp(f"[graph] {args.num_snapshots} 个快照的边覆盖率: {cover}")
+        save_snapshot_properties(graph_dir, props)
+        cover = [round(float(m.mean()), 4) for m in props["masks"]]
+        _stamp(f"[graph] {len(props['masks'])} 个快照的边覆盖率: {cover} "
+               f"({time.time() - t0:.0f}s)")
         summary["snapshot_coverage"] = cover
 
     # ---------- 3. description 嵌入（全节点） ----------

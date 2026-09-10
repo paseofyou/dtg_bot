@@ -1,8 +1,12 @@
 """构建 TwiBot-20 的图结构与静态特征（纯 CPU，需扫过 support.json，约 5GB）。
 
 用法：
+    # 本地
     python scripts/build_graph_twibot20.py --raw D:/project/dataset/TwiBot-20/raw \
         --cache ./cache/twibot20
+    # 云上（原始 json 直接放在 $WORK/data/twibot20 下，无 raw 子目录）
+    python scripts/build_graph_twibot20.py --raw $WORK/data/twibot20 \
+        --cache $WORK/cache/twibot20 --num-snapshots 8 --interval year
     # 只用标注用户建子图（快速验证管线）：
     python scripts/build_graph_twibot20.py --splits train dev test
 """

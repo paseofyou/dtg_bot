@@ -17,7 +17,7 @@ mkdir -p "$LOGS"
 
 SEQ_LEN="${SEQ_LEN:-32}"
 SEEDS="${SEEDS:-42 123 456 789 2024}"
-RAW="${RAW:-$WORK/data/twibot20/raw}"
+RAW="${RAW:-$WORK/data/twibot20}"
 
 SUMMARY="$LOGS/stage2_summary.log"
 : > "$SUMMARY"
