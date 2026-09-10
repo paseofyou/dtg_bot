@@ -115,7 +115,7 @@ class DTGBot(nn.Module):
         if rows is None:
             rows = torch.arange(feat.shape[0], device=feat.device)
 
-        chunk = 50000
+        chunk = 20000
         out = None
         for start in range(0, len(rows), chunk):
             end = min(start + chunk, len(rows))
@@ -130,8 +130,25 @@ class DTGBot(nn.Module):
         """返回各视图的节点表示。batch 需含图分支所需的全图张量。"""
         views: dict[str, torch.Tensor] = {}
         need_graph = {"macro", "global"} & set(self.use_views)
-        x = self.static(batch["des"], batch["tweet"], batch["num_prop"], batch["cat_prop"]) \
-            if need_graph else None
+
+        if "x" in batch:
+            x = batch["x"]
+        elif need_graph:
+            # description / tweet 是 (N, 768) 大矩阵，T22 下各占约 3GB 显存。
+            # 静态编码后只保留 (N, emb) 的 x，删除原始输入以释放显存。
+            des = batch.pop("des")
+            tweet = batch.pop("tweet")
+            num_prop = batch.pop("num_prop")
+            cat_prop = batch.pop("cat_prop")
+            x = self.static(des, tweet, num_prop, cat_prop)
+            batch["x"] = x
+            del des, tweet, num_prop, cat_prop
+        else:
+            # 微观单视图不需要这些，直接释放，避免无意义占用显存
+            for k in ("des", "tweet", "num_prop", "cat_prop"):
+                if k in batch:
+                    batch.pop(k)
+            x = None
 
         if "micro" in self.use_views:
             views["micro"] = self._encode_micro(batch)
