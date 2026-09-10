@@ -88,7 +88,7 @@ def load_twibot20(
         "snapshot_masks": [m for m in snap["snapshot_masks"]],
         "snapshot_clustering_coefficient": snap["snapshot_clustering_coefficient"].float(),
         "snapshot_bidirectional_links_ratio": snap["snapshot_bidirectional_links_ratio"].float(),
-        "snapshot_exist_nodes": snap["snapshot_exist_nodes"].float(),
+        "snapshot_exist_nodes": snap["snapshot_exist_nodes"].float().squeeze(-1),  # (K, N)
         "labels": torch.from_numpy(labels),
         "idx": {k: torch.from_numpy(v) for k, v in idx.items()},
         "snapshot_cutoffs": snap["snapshot_cutoffs"],
