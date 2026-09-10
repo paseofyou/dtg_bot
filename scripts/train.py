@@ -38,16 +38,17 @@ from dtg_bot.utils.seed import set_seed
 def build_model(args, data) -> nn.Module:
     num_prop_size = data["num_prop"].shape[1]
     cat_prop_size = data["cat_prop"].shape[1]
+    num_relations = data.get("num_relations", args.num_relations)
     if args.model == "botrgcn":
         return BotRGCN(
             num_prop_size=num_prop_size, cat_prop_size=cat_prop_size,
-            emb=args.emb, num_relations=args.num_relations, dropout=args.dropout,
+            emb=args.emb, num_relations=num_relations, dropout=args.dropout,
         )
     return DTGBot(
         micro_channels=data["micro_meta"]["n_channels"],
         micro_seq_len=data["micro_meta"]["seq_len"],
         num_prop_size=num_prop_size, cat_prop_size=cat_prop_size,
-        emb=args.emb, num_relations=args.num_relations,
+        emb=args.emb, num_relations=num_relations,
         num_snapshots=len(data["snapshot_masks"]), dropout=args.dropout,
         micro_dropout=args.micro_dropout, micro_layers=args.micro_layers,
         micro_heads=args.micro_heads, macro_temporal=args.macro_temporal,

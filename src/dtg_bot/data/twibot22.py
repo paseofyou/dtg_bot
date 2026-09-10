@@ -290,7 +290,12 @@ def build_twibot22_graph(
     cache: str | Path,
     uid_to_idx: dict[str, int],
 ) -> dict:
-    """读取 edge.csv，仅保留用户之间的 following/followers 边。"""
+    """读取 edge.csv，仅保留用户之间的 following 边。
+
+    TwiBot-22 的 following/followers 本质上是同一条关注关系的两个方向；
+    同时保留会使边数翻倍，A100 80GB 在 1M 节点下无法容纳 3 视图全图训练。
+    只取 following（源用户关注目标用户）是为了在显存允许范围内完成 stage-2。
+    """
     raw_dir, cache = Path(raw_dir), Path(cache)
     graph_dir = cache / "graph"
     edge_csv = raw_dir / "edge.csv"
@@ -298,7 +303,7 @@ def build_twibot22_graph(
     if not edge_csv.exists():
         raise FileNotFoundError(f"未找到 edge.csv: {edge_csv}")
 
-    REL_MAP = {"following": 0, "followers": 1}
+    REL_MAP = {"following": 0}
     src = array.array("q")
     dst = array.array("q")
     rel = array.array("b")
@@ -314,7 +319,7 @@ def build_twibot22_graph(
         dtype=str,
         chunksize=chunksize,
     ), desc="scan edge chunks"):
-        sub = chunk[chunk["relation"].isin(["following", "followers"])].copy()
+        sub = chunk[chunk["relation"].isin(["following"])].copy()
         sub["s_bare"] = sub["source_id"].astype(str).str.strip().str.lstrip("uU")
         sub["t_bare"] = sub["target_id"].astype(str).str.strip().str.lstrip("uU")
         mask = sub["s_bare"].isin(uid_to_idx) & sub["t_bare"].isin(uid_to_idx)
@@ -339,6 +344,8 @@ def build_twibot22_graph(
     meta = json.loads((graph_dir / "graph_meta.json").read_text(encoding="utf-8"))
     meta["n_edges"] = int(edge_index.shape[1])
     meta["n_edges_dropped_unknown_endpoint"] = dropped
+    meta["relations"] = ["following"]
+    meta["num_relations"] = 1
     (graph_dir / "graph_meta.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
     return meta
 

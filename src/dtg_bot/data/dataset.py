@@ -93,6 +93,7 @@ def load_twibot20(
         "idx": {k: torch.from_numpy(v) for k, v in idx.items()},
         "snapshot_cutoffs": snap["snapshot_cutoffs"],
         "n_nodes": n_nodes,
+        "num_relations": g["meta"].get("num_relations", 2),
         "graph_meta": g["meta"],
     }
 
