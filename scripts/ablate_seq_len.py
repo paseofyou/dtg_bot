@@ -24,6 +24,8 @@ def main():
                     default=[42, 123, 456, 789, 2024])
     ap.add_argument("--epochs", type=int, default=100)
     ap.add_argument("--patience", type=int, default=20)
+    ap.add_argument("--skip-existing", action="store_true",
+                    help="准备阶段跳过已存在产物（避免重复 RoBERTa 编码）")
     ap.add_argument("--results", default="./experiments/results_seq_len.csv")
     args = ap.parse_args()
 
@@ -31,6 +33,8 @@ def main():
         sys.executable, str(Path(__file__).resolve().parents[1] / "scripts" / "prepare_twibot20.py"),
         "--raw", str(args.raw), "--cache", str(args.cache), "--splits", *args.splits,
     ]
+    if args.skip_existing:
+        base.append("--skip-existing")
 
     for L in SEQ_LENS:
         print(f"\n{'='*60}")
