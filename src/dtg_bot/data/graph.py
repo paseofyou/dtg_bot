@@ -18,6 +18,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import numpy as np
+import torch
 from tqdm import tqdm
 
 from .twibot20 import LABELED_SPLITS, SPLITS, iter_split
