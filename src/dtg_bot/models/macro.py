@@ -82,6 +82,6 @@ class MacroSnapshotEncoder(nn.Module):
         cc = self.cc_pos(snapshot_clustering_coefficient).permute(1, 0, 2)
         blr = self.blr_pos(snapshot_bidirectional_links_ratio).permute(1, 0, 2)
 
-        # snapshot_exist_nodes 形状 (K, N) -> (N, K) 传给时序层
-        temporal_out = self.temporal_layer(h, cc, blr, snapshot_exist_nodes.t())
+        # snapshot_exist_nodes 形状 (K, N, 1) -> (N, K) 传给时序层
+        temporal_out = self.temporal_layer(h, cc, blr, snapshot_exist_nodes.squeeze(-1).t())
         return self.norm(temporal_out[:, -1])                 # 取末态 (N, emb)

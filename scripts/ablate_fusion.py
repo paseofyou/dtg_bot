@@ -26,12 +26,13 @@ def main():
     args = ap.parse_args()
 
     work = Path(args.work_dir)
+    ds_key = f"twibot{args.dataset.split('-')[1].lower()}"
     results = Path(args.results) if args.results else work / "experiments" / "ablate_fusion.csv"
     train_py = Path(__file__).resolve().parents[1] / "scripts" / "train.py"
     base_cmd = [
         sys.executable, str(train_py),
         "--work-dir", str(work),
-        "--cache", str(args.cache) if args.cache else str(work / "cache" / "twibot20"),
+        "--cache", str(args.cache) if args.cache else str(work / "cache" / ds_key),
         "--dataset", args.dataset,
         "--views", *args.views,
         "--seeds", *map(str, args.seeds),

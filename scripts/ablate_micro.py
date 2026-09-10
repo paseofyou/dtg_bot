@@ -59,7 +59,7 @@ def build_groups(base_names: list[str]) -> dict[str, list[int]]:
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--cache", default="./cache/twibot20")
+    ap.add_argument("--cache", default=None)
     ap.add_argument("--dataset", default="TwiBot-20")
     ap.add_argument("--seq-len", type=int, default=32)
     ap.add_argument("--channel-group", default=None)
@@ -77,6 +77,8 @@ def main():
     ap.add_argument("--dropout", type=float, default=0.1)
     ap.add_argument("--results", default="./experiments/results_ablate_micro.csv")
     args = ap.parse_args()
+    if args.cache is None:
+        args.cache = f"./cache/twibot{args.dataset.split('-')[1].lower()}"
 
     feat, mask, labels, idx, meta = load_data(Path(args.cache), args.seq_len)
     base_names = meta["channel_names"]

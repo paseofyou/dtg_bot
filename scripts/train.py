@@ -154,7 +154,8 @@ def main() -> None:
     args = ap.parse_args()
 
     work = Path(args.work_dir)
-    cache = Path(args.cache) if args.cache else work / "cache" / "twibot20"
+    ds_key = f"twibot{args.dataset.split('-')[1].lower()}"
+    cache = Path(args.cache) if args.cache else work / "cache" / ds_key
     results = Path(args.results) if args.results else work / "experiments" / "results.csv"
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
