@@ -40,7 +40,8 @@ class DTGBot(nn.Module):
         micro_dropout: float = 0.1,
         micro_layers: int = 2,
         micro_heads: int = 4,
-        macro_temporal: str = "gru",
+        macro_temporal: str = "attention",
+        macro_heads: int = 4,
         fusion: str = "concat",
         use_views: tuple[str, ...] = VIEW_NAMES,
         micro_seq_model: str = "transformer",
@@ -73,8 +74,8 @@ class DTGBot(nn.Module):
         if "macro" in self.use_views:
             from .macro import MacroSnapshotEncoder
             self.macro = MacroSnapshotEncoder(
-                emb=emb, num_relations=num_relations, num_snapshots=num_snapshots,
-                out_dim=emb, dropout=dropout, temporal=macro_temporal,
+                emb=emb, n_heads=macro_heads, num_snapshots=num_snapshots,
+                dropout=dropout, temporal=macro_temporal,
                 checkpoint=macro_checkpoint,
             )
         if "global" in self.use_views:
@@ -126,7 +127,10 @@ class DTGBot(nn.Module):
             views["micro"] = self._encode_micro(batch)
         if "macro" in self.use_views:
             views["macro"] = self.macro(
-                x, batch["edge_index"], batch["edge_type"], batch["snapshot_masks"]
+                x, batch["edge_index"], batch["snapshot_masks"],
+                batch["snapshot_clustering_coefficient"],
+                batch["snapshot_bidirectional_links_ratio"],
+                batch["snapshot_exist_nodes"],
             )
         if "global" in self.use_views:
             # 全局分支同样是一次全图 RGCN，其反向中间量与单个宏观快照同量级。

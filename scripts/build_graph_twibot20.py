@@ -19,7 +19,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from dtg_bot.data.graph import build_graph, snapshot_edge_masks
+from dtg_bot.data.graph import build_graph, build_snapshot_properties, save_snapshot_properties
 
 
 def main() -> None:
@@ -28,6 +28,7 @@ def main() -> None:
     ap.add_argument("--cache", default="./cache/twibot20")
     ap.add_argument("--splits", nargs="+", default=["train", "dev", "test", "support"])
     ap.add_argument("--num-snapshots", type=int, default=8)
+    ap.add_argument("--interval", default="year", choices=["year", "month"])
     args = ap.parse_args()
 
     out_dir = Path(args.cache) / "graph"
@@ -36,18 +37,25 @@ def main() -> None:
     print(f"\n建图完成 ({time.time() - t0:.1f}s) → {out_dir}")
     print(json.dumps(meta, indent=2, ensure_ascii=False))
 
-    # 宏观快照掩码：顺带报告每个快照保留多少边，用于确认切分是否合理
+    # 宏观动态图快照：按 BotDGT 原装时间区间 + 聚类/双向链接位置编码
+    print("\n构建 BotDGT 宏观快照属性...")
+    t0 = time.time()
     edge_index = np.load(out_dir / "edge_index.npy")
+    edge_type = np.load(out_dir / "edge_type.npy")
     created_ts = np.load(out_dir / "created_ts.npy")
-    masks, cutoffs = snapshot_edge_masks(edge_index, created_ts, args.num_snapshots)
-    print(f"\n宏观动态图快照 (num_snapshots={args.num_snapshots}):")
+    props = build_snapshot_properties(
+        edge_index, edge_type, created_ts,
+        num_snapshots=args.num_snapshots, interval=args.interval,
+        following_relation=0,
+    )
+    save_snapshot_properties(out_dir, props)
     total = edge_index.shape[1]
-    for k, (mask, cut) in enumerate(zip(masks, cutoffs)):
+    for k, cut in enumerate(props["cutoffs"]):
         from datetime import datetime, timezone
-        stamp = datetime.fromtimestamp(cut, tz=timezone.utc).strftime("%Y-%m-%d")
-        print(f"  t{k}: cutoff={stamp}  edges={int(mask.sum()):>8} / {total}  "
-              f"({100 * mask.mean():.1f}%)")
-    np.save(out_dir / "snapshot_cutoffs.npy", cutoffs)
+        stamp = datetime.fromtimestamp(float(cut), tz=timezone.utc).strftime("%Y-%m-%d")
+        print(f"  t{k}: cutoff={stamp}  edges={int(props['masks'][k].sum()):>8} / {total}  "
+              f"({100 * props['masks'][k].mean():.1f}%)")
+    print(f"快照属性保存完成 ({time.time() - t0:.1f}s) → {out_dir}")
 
 
 if __name__ == "__main__":

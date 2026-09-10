@@ -51,6 +51,7 @@ def build_model(args, data) -> nn.Module:
         num_snapshots=len(data["snapshot_masks"]), dropout=args.dropout,
         micro_dropout=args.micro_dropout, micro_layers=args.micro_layers,
         micro_heads=args.micro_heads, macro_temporal=args.macro_temporal,
+        macro_heads=args.macro_heads,
         fusion=args.fusion, use_views=tuple(args.views),
         micro_seq_model=args.micro_seq_model, micro_order_mode=args.micro_order_mode,
         micro_use_position=args.micro_use_position,
@@ -124,7 +125,8 @@ def main() -> None:
     ap.add_argument("--tag", default="", help="结果表里的变体名，默认自动生成")
     ap.add_argument("--views", nargs="+", default=["micro", "macro", "global"])
     ap.add_argument("--fusion", default="concat", choices=["attn", "gate", "concat"])
-    ap.add_argument("--macro-temporal", default="gru", choices=["gru", "transformer", "last"])
+    ap.add_argument("--macro-temporal", default="attention", choices=["attention", "gru", "lstm"])
+    ap.add_argument("--macro-heads", type=int, default=4)
     ap.add_argument("--micro-seq-model", default="transformer", choices=["transformer", "bag"])
     ap.add_argument("--micro-order-mode", default="keep", choices=["keep", "shuffle", "reverse"])
     ap.add_argument("--micro-use-position", action="store_true")

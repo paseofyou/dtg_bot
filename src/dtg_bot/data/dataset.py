@@ -15,7 +15,7 @@ import numpy as np
 import torch
 
 from .encode import load_matrix
-from .graph import load_graph, normalize_num_prop, snapshot_edge_masks
+from .graph import load_graph, load_snapshot_properties, normalize_num_prop
 
 
 def _read_jsonl_ids(path: Path) -> np.ndarray:
@@ -76,7 +76,7 @@ def load_twibot20(
 
     edge_index = torch.from_numpy(g["edge_index"]).long()
     edge_type = torch.from_numpy(g["edge_type"].astype(np.int64))
-    masks, cutoffs = snapshot_edge_masks(g["edge_index"], g["created_ts"], num_snapshots)
+    snap = load_snapshot_properties(graph_dir)
 
     data = {
         "des": torch.from_numpy(des),
@@ -85,10 +85,13 @@ def load_twibot20(
         "cat_prop": torch.from_numpy(g["cat_prop"]),
         "edge_index": edge_index,
         "edge_type": edge_type,
-        "snapshot_masks": [torch.from_numpy(m) for m in masks],
+        "snapshot_masks": [m for m in snap["snapshot_masks"]],
+        "snapshot_clustering_coefficient": snap["snapshot_clustering_coefficient"].float(),
+        "snapshot_bidirectional_links_ratio": snap["snapshot_bidirectional_links_ratio"].float(),
+        "snapshot_exist_nodes": snap["snapshot_exist_nodes"].float(),
         "labels": torch.from_numpy(labels),
         "idx": {k: torch.from_numpy(v) for k, v in idx.items()},
-        "snapshot_cutoffs": cutoffs,
+        "snapshot_cutoffs": snap["snapshot_cutoffs"],
         "n_nodes": n_nodes,
         "graph_meta": g["meta"],
     }

@@ -175,5 +175,143 @@ def snapshot_edge_masks(
     dst_ts = node_ts[edge_index[1]]
     edge_ts = np.maximum(src_ts, dst_ts)      # 边在两端都创建后才可能存在
 
-    masks = [edge_ts <= c for c in cutoffs]
+    masks = [edge_ts < c for c in cutoffs]
     return masks, cutoffs
+
+
+def _interval_cutoffs(created_ts: np.ndarray, interval: str = "year"):
+    """按 BotDGT 原装思路生成时间区间切点：每年/每月首日的 epoch 秒。"""
+    ts = np.asarray(created_ts, dtype=np.float64)
+    valid = ~np.isnan(ts)
+    if not valid.any():
+        return []
+    min_t = datetime.fromtimestamp(ts[valid].min(), tz=timezone.utc)
+    max_t = datetime.fromtimestamp(ts[valid].max(), tz=timezone.utc)
+    start_year = min_t.year
+    end_year = max_t.year
+
+    cutoffs = []
+    if interval == "year":
+        for y in range(start_year, end_year + 1):
+            cutoffs.append(datetime(y, 1, 1, tzinfo=timezone.utc).timestamp())
+    elif interval == "month":
+        from calendar import monthrange
+        for y in range(start_year, end_year + 1):
+            for m in range(1, 13):
+                cutoffs.append(datetime(y, m, 1, tzinfo=timezone.utc).timestamp())
+    else:
+        raise ValueError(f"unknown interval: {interval}")
+    return cutoffs
+
+
+def build_snapshot_properties(
+    edge_index: np.ndarray,
+    edge_type: np.ndarray,
+    created_ts: np.ndarray,
+    num_snapshots: int = 8,
+    interval: str = "year",
+    following_relation: int = 0,
+) -> dict:
+    """构建 BotDGT 原装快照属性：节点是否存在、聚类系数、双向链接比。
+
+    Returns:
+        masks: K 个 (E,) bool 边掩码
+        exist_nodes: (K, N) 0/1
+        clustering_coefficient: (K, N, 1) float
+        bidirectional_links_ratio: (K, N, 1) float
+        cutoffs: (K,) float64
+    """
+    import networkx as nx
+
+    n_nodes = created_ts.shape[0]
+    ts = np.asarray(created_ts, dtype=np.float64)
+    valid = ~np.isnan(ts)
+    node_ts = np.where(valid, ts, -np.inf)
+
+    all_cutoffs = _interval_cutoffs(created_ts, interval)
+    if not all_cutoffs:
+        raise ValueError("无法生成快照切点：无有效 created_at")
+
+    # 取最后 num_snapshots 个快照
+    cutoffs = all_cutoffs[-num_snapshots:]
+
+    masks = []
+    exist_list = []
+    cc_list = []
+    blr_list = []
+
+    for c in cutoffs:
+        # 节点存在：created_at < cutoff（与 BotDGT split_user_by_interval 一致）
+        exist = (node_ts < c).astype(np.float32)
+
+        # 边存在：两端都已在 cutoff 前创建
+        src_ts = node_ts[edge_index[0]]
+        dst_ts = node_ts[edge_index[1]]
+        edge_ts = np.maximum(src_ts, dst_ts)
+        mask = edge_ts < c
+        masks.append(mask)
+
+        sub_ei = edge_index[:, mask]
+
+        # 聚类系数（无向图）
+        G = nx.Graph()
+        existing = np.flatnonzero(exist).tolist()
+        G.add_nodes_from(existing)
+        if sub_ei.shape[1] > 0:
+            G.add_edges_from(sub_ei.T.tolist())
+        cc_dict = nx.clustering(G)
+        cc = np.zeros(n_nodes, dtype=np.float32)
+        for node in existing:
+            cc[node] = float(cc_dict.get(node, 0.0))
+        cc_list.append(cc.reshape(-1, 1))
+
+        # 双向链接比（有向图，仅 following 边）
+        follow_mask = mask & (edge_type == following_relation)
+        follow_ei = edge_index[:, follow_mask]
+        D = nx.DiGraph()
+        D.add_nodes_from(existing)
+        if follow_ei.shape[1] > 0:
+            D.add_edges_from(follow_ei.T.tolist())
+
+        blr = np.zeros(n_nodes, dtype=np.float32)
+        for i in existing:
+            succ = set(D.successors(i))
+            if not succ:
+                continue
+            reciprocal = sum(1 for j in succ if D.has_edge(j, i))
+            blr[i] = reciprocal / len(succ)
+        blr_list.append(blr.reshape(-1, 1))
+
+        exist_list.append(exist.reshape(-1, 1))
+
+    return {
+        "masks": masks,
+        "exist_nodes": np.stack(exist_list, axis=0),        # (K, N, 1)
+        "clustering_coefficient": np.stack(cc_list, axis=0),  # (K, N, 1)
+        "bidirectional_links_ratio": np.stack(blr_list, axis=0),  # (K, N, 1)
+        "cutoffs": np.array(cutoffs, dtype=np.float64),
+    }
+
+
+def save_snapshot_properties(
+    out_dir: str | Path,
+    props: dict,
+) -> None:
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    np.save(out_dir / "snapshot_masks.npy", np.stack(props["masks"], axis=0))
+    np.save(out_dir / "snapshot_exist_nodes.npy", props["exist_nodes"].astype(np.int8))
+    np.save(out_dir / "snapshot_clustering_coefficient.npy", props["clustering_coefficient"])
+    np.save(out_dir / "snapshot_bidirectional_links_ratio.npy", props["bidirectional_links_ratio"])
+    np.save(out_dir / "snapshot_cutoffs.npy", props["cutoffs"])
+
+
+def load_snapshot_properties(out_dir: str | Path) -> dict:
+    out_dir = Path(out_dir)
+    return {
+        "snapshot_masks": [torch.from_numpy(m) for m in np.load(out_dir / "snapshot_masks.npy")],
+        "snapshot_exist_nodes": torch.from_numpy(np.load(out_dir / "snapshot_exist_nodes.npy")),
+        "snapshot_clustering_coefficient": torch.from_numpy(np.load(out_dir / "snapshot_clustering_coefficient.npy")),
+        "snapshot_bidirectional_links_ratio": torch.from_numpy(np.load(out_dir / "snapshot_bidirectional_links_ratio.npy")),
+        "snapshot_cutoffs": np.load(out_dir / "snapshot_cutoffs.npy"),
+    }
