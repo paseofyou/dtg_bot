@@ -104,16 +104,26 @@ class DTGBot(nn.Module):
 
         ``batch["micro_index"]`` 给出需要计算的行（标注节点）时只在这些行上跑
         编码器，其余行补零。微观视图不经图传播，未标注节点的输出不进入任何损失、
-        梯度恒为 0，故此举与全量前向**数学等价**；但把注意力矩阵从
-        n_nodes × heads × L × L（约 3.8GB/层）压到标注节点规模，避免 OOM。
+        梯度恒为 0，故此举与全量前向**数学等价**。
+
+        TwiBot-22 全量 100 万节点时，即使 ``micro_index`` 已把所有行都标为
+        需要计算，单次喂进 Transformer 仍会因注意力矩阵 (n_nodes, n_heads, L, L)
+        而 OOM。这里再按 5 万行为一块切分，A100 80GB 显存下足够安全。
         """
         feat, mask = batch["micro_feat"], batch["micro_mask"]
         rows = batch.get("micro_index")
         if rows is None:
-            return self.micro(feat, mask)
-        z = self.micro(feat[rows], mask[rows])
-        out = z.new_zeros((feat.shape[0], z.shape[1]))
-        out[rows] = z
+            rows = torch.arange(feat.shape[0], device=feat.device)
+
+        chunk = 50000
+        out = None
+        for start in range(0, len(rows), chunk):
+            end = min(start + chunk, len(rows))
+            chunk_rows = rows[start:end]
+            z = self.micro(feat[chunk_rows], mask[chunk_rows])
+            if out is None:
+                out = z.new_zeros((feat.shape[0], z.shape[1]))
+            out[chunk_rows] = z
         return out
 
     def encode_views(self, batch: dict) -> dict[str, torch.Tensor]:
