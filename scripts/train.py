@@ -87,11 +87,11 @@ def run_one_seed(args, data, seed: int, device: str) -> dict:
             logits = model(data) if args.model == "dtg" else model(
                 data["des"], data["tweet"], data["num_prop"], data["cat_prop"],
                 data["edge_index"], data["edge_type"])
-            dev_acc = compute_metrics(
+            dev_metric = compute_metrics(
                 y[dv].cpu().numpy(), logits[dv].argmax(1).cpu().numpy()
-            )["accuracy"]
-        if dev_acc > best_dev:
-            best_dev, bad = dev_acc, 0
+            )[args.select_metric]
+        if dev_metric > best_dev:
+            best_dev, bad = dev_metric, 0
             best_state = {k: v.detach().clone() for k, v in model.state_dict().items()}
         else:
             bad += 1
@@ -107,7 +107,7 @@ def run_one_seed(args, data, seed: int, device: str) -> dict:
         prob = torch.softmax(logits[te], dim=1)[:, 1]
     res = compute_metrics(y[te].cpu().numpy(), logits[te].argmax(1).cpu().numpy(),
                           prob.cpu().numpy())
-    res["best_dev_acc"] = best_dev
+    res[f"best_dev_{args.select_metric}"] = best_dev
     res["epochs_run"] = epoch + 1
     return res
 
@@ -149,8 +149,7 @@ def main() -> None:
                     choices=["accuracy", "f1", "mcc", "auc"],
                     help="验证集选检查点的指标（默认 accuracy）")
     ap.add_argument("--seeds", nargs="+", type=int,
-                    default=[42, 123, 456, 789, 2024, 7, 13, 99, 2025, 314,
-                             1618, 271, 577, 999, 8128])
+                    default=[42, 123, 456, 789, 2024])
     ap.add_argument("--results", default=None)
     args = ap.parse_args()
 
