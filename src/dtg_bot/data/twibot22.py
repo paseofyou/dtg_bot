@@ -198,7 +198,7 @@ def build_user_table(
 
     def _split(uid: str) -> str:
         s = split_map.get(uid, "support")
-        return "dev" if s == "valid" else s
+        return "dev" if s in ("val", "valid") else s
 
     def _label(uid: str) -> int:
         lab = label_map.get(uid, "")
