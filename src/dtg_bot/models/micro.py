@@ -87,6 +87,27 @@ class AttentionPooling(nn.Module):
         return pooled, weights
 
 
+class MeanPooling(nn.Module):
+    """带 mask 的均值池化。"""
+
+    def forward(self, h: torch.Tensor, mask: torch.Tensor) -> tuple[torch.Tensor, None]:
+        w = mask.unsqueeze(-1).float()
+        pooled = (h * w).sum(dim=1) / w.sum(dim=1).clamp(min=1.0)
+        return pooled, None
+
+
+class MaxPooling(nn.Module):
+    """带 mask 的最大值池化。"""
+
+    def forward(self, h: torch.Tensor, mask: torch.Tensor) -> tuple[torch.Tensor, None]:
+        # 无效位填充极小值，空用户保持 0
+        masked = torch.where(mask.unsqueeze(-1), h, torch.full_like(h, -1e9))
+        pooled = masked.max(dim=1)[0]
+        empty = ~mask.any(dim=1)
+        pooled = torch.where(empty.unsqueeze(1), torch.zeros_like(pooled), pooled)
+        return pooled, None
+
+
 class EventAttentionEncoder(nn.Module):
     """事件级注意力编码器：Transformer 交互 + attention pooling。
 
@@ -109,11 +130,13 @@ class EventAttentionEncoder(nn.Module):
         seq_model: str = "transformer",
         order_mode: str = "keep",
         use_position: bool = False,
+        pool: str = "attn",
     ):
         super().__init__()
         self.seq_model = seq_model
         self.order_mode = order_mode
         self.use_position = use_position
+        self.pool_name = pool
 
         if seq_model == "bag":
             self.mlp = nn.Sequential(
@@ -132,12 +155,19 @@ class EventAttentionEncoder(nn.Module):
             dropout=dropout, activation="gelu", batch_first=True, norm_first=True,
         )
         self.transformer = nn.TransformerEncoder(layer, num_layers=n_layers)
-        self.pool = AttentionPooling(d_model)
+        pools = {
+            "attn": AttentionPooling(d_model),
+            "mean": MeanPooling(),
+            "max": MaxPooling(),
+        }
+        if pool not in pools:
+            raise ValueError(f"unknown pool: {pool}; choose from {list(pools.keys())}")
+        self.pool = pools[pool]
         self.out_proj = nn.Sequential(nn.LayerNorm(d_model), nn.Linear(d_model, out_dim), nn.GELU())
         if self.pos_emb is not None:
             nn.init.normal_(self.pos_emb.weight, std=0.02)
 
-    def forward(self, x: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, mask: torch.Tensor, return_weights: bool = False):
         """x: (B, L, C) float, mask: (B, L) bool → (B, out_dim)"""
         x, mask = permute_sequence(x, mask, self.order_mode)
 
@@ -161,5 +191,8 @@ class EventAttentionEncoder(nn.Module):
         # 注意：这里必须传**原始** mask，不能传 attn_mask。
         # 否则 AttentionPooling 会把空用户误判为非空，其嵌入变成 padding 位的
         # 垃圾值（随输入顺序变化、不可复现），而非干净的零向量。
-        pooled, _ = self.pool(h, mask)
-        return self.out_proj(pooled)
+        pooled, weights = self.pool(h, mask)
+        out = self.out_proj(pooled)
+        if return_weights:
+            return out, weights
+        return out

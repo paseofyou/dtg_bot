@@ -17,7 +17,7 @@ import torch
 import torch.nn as nn
 from torch.utils.checkpoint import checkpoint
 
-from .fusion import GatedFusion, ViewAttentionFusion, multi_view_contrastive
+from .fusion import GatedFusion, ViewAttentionFusion
 from .graph import RGCNEncoder, StaticFeatureEncoder
 from .micro import EventAttentionEncoder
 
@@ -41,7 +41,7 @@ class DTGBot(nn.Module):
         micro_layers: int = 2,
         micro_heads: int = 4,
         macro_temporal: str = "gru",
-        fusion: str = "attn",
+        fusion: str = "concat",
         use_views: tuple[str, ...] = VIEW_NAMES,
         micro_seq_model: str = "transformer",
         micro_order_mode: str = "keep",
@@ -154,10 +154,3 @@ class DTGBot(nn.Module):
         logits = self.head(fused)
         return (logits, views) if return_views else logits
 
-    @staticmethod
-    def contrastive_loss(views: dict[str, torch.Tensor], temperature: float = 0.5,
-                         max_samples: int = 4096) -> torch.Tensor:
-        vs = list(views.values())
-        if len(vs) < 2:
-            return vs[0].new_zeros(())
-        return multi_view_contrastive(vs, temperature, max_samples)

@@ -50,13 +50,13 @@ class MicroOnlyClassifier(nn.Module):
 
     def __init__(self, in_channels: int, seq_len: int, d_model=64, out_dim=64,
                  n_layers=2, n_heads=4, dropout=0.1, seq_model="transformer",
-                 order_mode="keep"):
+                 order_mode="keep", pool="attn"):
         super().__init__()
         self.encoder = EventAttentionEncoder(
             in_channels=in_channels, d_model=d_model, out_dim=out_dim,
             n_layers=n_layers, n_heads=n_heads, max_len=seq_len,
             dropout=dropout, seq_model=seq_model, order_mode=order_mode,
-            use_position=True,
+            use_position=True, pool=pool,
         )
         self.head = nn.Sequential(nn.Dropout(dropout), nn.Linear(out_dim, 2))
 
@@ -86,7 +86,7 @@ def run_one(feat, mask, labels, idx, meta, variant: dict, seed: int, args, devic
         in_channels=meta["n_channels"], seq_len=meta["seq_len"],
         d_model=args.d_model, n_layers=args.layers, n_heads=args.heads,
         dropout=args.dropout, seq_model=variant["seq_model"],
-        order_mode=variant["order_mode"],
+        order_mode=variant["order_mode"], pool=variant.get("pool", "attn"),
     ).to(device)
     opt = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
     crit = nn.CrossEntropyLoss()

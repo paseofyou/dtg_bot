@@ -58,14 +58,6 @@ def build_model(args, data) -> nn.Module:
     )
 
 
-def forward(model, args, data):
-    """统一两种模型的调用方式。返回 (logits, views 或 None)。"""
-    if args.model == "botrgcn":
-        return model(data["des"], data["tweet"], data["num_prop"], data["cat_prop"],
-                     data["edge_index"], data["edge_type"]), None
-    return model(data, return_views=True)
-
-
 def run_one_seed(args, data, seed: int, device: str) -> dict:
     set_seed(seed)
     model = build_model(args, data).to(device)
@@ -75,41 +67,25 @@ def run_one_seed(args, data, seed: int, device: str) -> dict:
     y = data["labels"]
     tr, dv, te = data["idx"]["train"], data["idx"]["dev"], data["idx"]["test"]
 
-    # 对比损失的采样范围：train 内**有真实发帖事件**的节点。
-    # 未标注节点本就不在 tr 中（其 z_micro 为补零行，绝不参与）；但零推文的标注
-    # 用户其 z_micro 是 out_proj(0) 的同一常量向量，彼此逐元素恒等。若让它们进入
-    # InfoNCE，非对角位置上会出现数值恒等的"负样本"，交叉熵强行推开恒等向量，
-    # 梯度只能倾泻到 macro/global 分支，构成虚假的对齐压力。故一并排除。
-    cl_idx = tr
-    if "micro" in args.views and args.beta > 0 and "micro_mask" in data:
-        has_event = data["micro_mask"][tr].any(dim=1)
-        cl_idx = tr[has_event]
-        n_drop = int(tr.numel() - cl_idx.numel())
-        if n_drop:
-            print(f"  [对比损失] train 内零推文用户 {n_drop} 个已从 InfoNCE 采样中排除",
-                  flush=True)
-
     best_dev, best_state, bad = -1.0, None, 0
     for epoch in range(args.epochs):
         model.train()
         opt.zero_grad()
-        logits, views = forward(model, args, data)
+        logits = model(data) if args.model == "dtg" else model(
+            data["des"], data["tweet"], data["num_prop"], data["cat_prop"],
+            data["edge_index"], data["edge_type"])
         loss = crit(logits[tr], y[tr])
-        if views is not None and args.beta > 0 and len(views) > 1:
-            loss = loss + args.beta * DTGBot.contrastive_loss(
-                {k: v[cl_idx] for k, v in views.items()},
-                temperature=args.temperature, max_samples=args.cl_max_samples,
-            )
         loss.backward()
         nn.utils.clip_grad_norm_(model.parameters(), args.grad_clip)
         opt.step()
-        # 训练前向的 logits/views 在紧随其后的评估前向期间仍被引用（三视图各 (N,emb)），
         # 显式释放以免两次前向的峰值叠加。
-        del logits, views, loss
+        del logits, loss
 
         model.eval()
         with torch.no_grad():
-            logits, _ = forward(model, args, data)
+            logits = model(data) if args.model == "dtg" else model(
+                data["des"], data["tweet"], data["num_prop"], data["cat_prop"],
+                data["edge_index"], data["edge_type"])
             dev_f1 = compute_metrics(
                 y[dv].cpu().numpy(), logits[dv].argmax(1).cpu().numpy()
             )["f1"]
@@ -124,7 +100,9 @@ def run_one_seed(args, data, seed: int, device: str) -> dict:
     model.load_state_dict(best_state)
     model.eval()
     with torch.no_grad():
-        logits, _ = forward(model, args, data)
+        logits = model(data) if args.model == "dtg" else model(
+            data["des"], data["tweet"], data["num_prop"], data["cat_prop"],
+            data["edge_index"], data["edge_type"])
         prob = torch.softmax(logits[te], dim=1)[:, 1]
     res = compute_metrics(y[te].cpu().numpy(), logits[te].argmax(1).cpu().numpy(),
                           prob.cpu().numpy())
@@ -145,7 +123,7 @@ def main() -> None:
     ap.add_argument("--model", default="dtg", choices=["botrgcn", "dtg"])
     ap.add_argument("--tag", default="", help="结果表里的变体名，默认自动生成")
     ap.add_argument("--views", nargs="+", default=["micro", "macro", "global"])
-    ap.add_argument("--fusion", default="attn", choices=["attn", "gate", "concat"])
+    ap.add_argument("--fusion", default="concat", choices=["attn", "gate", "concat"])
     ap.add_argument("--macro-temporal", default="gru", choices=["gru", "transformer", "last"])
     ap.add_argument("--micro-seq-model", default="transformer", choices=["transformer", "bag"])
     ap.add_argument("--micro-order-mode", default="keep", choices=["keep", "shuffle", "reverse"])
@@ -162,10 +140,6 @@ def main() -> None:
     ap.add_argument("--micro-heads", type=int, default=4)
     ap.add_argument("--lr", type=float, default=1e-3)
     ap.add_argument("--weight-decay", type=float, default=5e-3)
-    ap.add_argument("--beta", "--lambda", dest="beta", type=float, default=0.0,
-                    help="对比损失权重（论文记号 λ；--beta 与 --lambda 等价）")
-    ap.add_argument("--temperature", type=float, default=0.5)
-    ap.add_argument("--cl-max-samples", type=int, default=4096)
     ap.add_argument("--epochs", type=int, default=300)
     ap.add_argument("--patience", type=int, default=40)
     ap.add_argument("--grad-clip", type=float, default=1.0)
@@ -183,7 +157,6 @@ def main() -> None:
     tag = args.tag or (
         "botrgcn" if args.model == "botrgcn"
         else f"{'+'.join(args.views)}_{args.fusion}"
-        + (f"_beta{args.beta}" if args.beta else "")
     )
     print(f"model={args.model}  tag={tag}  device={device}", flush=True)
 
@@ -204,7 +177,7 @@ def main() -> None:
             "dataset": args.dataset, "experiment": "main", "variant": tag,
             "model": args.model, "views": "+".join(args.views), "fusion": args.fusion,
             "macro_temporal": args.macro_temporal, "micro_seq_model": args.micro_seq_model,
-            "micro_order_mode": args.micro_order_mode, "beta": args.beta,
+            "micro_order_mode": args.micro_order_mode,
             "seed": seed, "seq_len": args.seq_len, "emb": args.emb, "lr": args.lr,
             "weight_decay": args.weight_decay, **res,
         })

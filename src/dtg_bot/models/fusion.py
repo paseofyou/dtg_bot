@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 
 
 class ViewAttentionFusion(nn.Module):
@@ -57,28 +56,4 @@ class GatedFusion(nn.Module):
         return self.out(gated.sum(dim=1)), gated.new_zeros(cat.size(0), self.n_views)
 
 
-def info_nce(z1: torch.Tensor, z2: torch.Tensor, temperature: float = 0.5,
-             max_samples: int = 4096) -> torch.Tensor:
-    """跨视图对齐损失。同一用户的两个视图为正样本，其余为负样本。
 
-    子采样以避免超大相似度矩阵（TwiBot-22 有百万节点）。
-    """
-    if z1.size(0) > max_samples:
-        idx = torch.randperm(z1.size(0), device=z1.device)[:max_samples]
-        z1, z2 = z1[idx], z2[idx]
-    z1 = F.normalize(z1, dim=1)
-    z2 = F.normalize(z2, dim=1)
-    logits = z1 @ z2.t() / temperature
-    labels = torch.arange(z1.size(0), device=z1.device)
-    # 对称化：两个方向都算，避免单向退化
-    return 0.5 * (F.cross_entropy(logits, labels) + F.cross_entropy(logits.t(), labels))
-
-
-def multi_view_contrastive(views: list[torch.Tensor], temperature: float = 0.5,
-                           max_samples: int = 4096) -> torch.Tensor:
-    """所有视图两两之间的对比损失均值。"""
-    losses = [
-        info_nce(views[i], views[j], temperature, max_samples)
-        for i in range(len(views)) for j in range(i + 1, len(views))
-    ]
-    return torch.stack(losses).mean() if losses else views[0].new_zeros(())
