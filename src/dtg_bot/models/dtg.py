@@ -152,8 +152,8 @@ class DTGBot(nn.Module):
             x = x.detach()
             x.requires_grad_(False)
         else:
-            # micro only
-            for k in ("des", "tweet", "num_prop", "cat_prop"):
+            # micro only: free CPU des/tweet but keep num_prop/cat_prop for build_model reuse
+            for k in ("des", "tweet"):
                 if k in batch:
                     batch.pop(k)
             x = None
