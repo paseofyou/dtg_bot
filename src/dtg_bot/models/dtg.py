@@ -115,12 +115,18 @@ class DTGBot(nn.Module):
         if rows is None:
             rows = torch.arange(feat.shape[0], device=feat.device)
 
-        chunk = 20000
+        chunk = 10000
         out = None
         for start in range(0, len(rows), chunk):
             end = min(start + chunk, len(rows))
             chunk_rows = rows[start:end]
-            z = self.micro(feat[chunk_rows], mask[chunk_rows])
+            # checkpoint each chunk to avoid storing activations for all chunks
+            z = checkpoint(
+                self.micro,
+                feat[chunk_rows],
+                mask[chunk_rows],
+                use_reentrant=False,
+            )
             if out is None:
                 out = z.new_zeros((feat.shape[0], z.shape[1]))
             out[chunk_rows] = z
@@ -131,20 +137,22 @@ class DTGBot(nn.Module):
         views: dict[str, torch.Tensor] = {}
         need_graph = {"macro", "global"} & set(self.use_views)
 
-        if "x" in batch:
-            x = batch["x"]
-        elif need_graph:
-            # description / tweet 是 (N, 768) 大矩阵，T22 下各占约 3GB 显存。
-            # 静态编码后只保留 (N, emb) 的 x，删除原始输入以释放显存。
-            des = batch.pop("des")
-            tweet = batch.pop("tweet")
-            num_prop = batch.pop("num_prop")
-            cat_prop = batch.pop("cat_prop")
-            x = self.static(des, tweet, num_prop, cat_prop)
-            batch["x"] = x
-            del des, tweet, num_prop, cat_prop
+        if need_graph:
+            # Recompute static features each forward, under no_grad, to avoid
+            # "backward through the graph a second time" when x is shared.
+            # des/tweet are only moved to GPU temporarily.
+            device = next(self.parameters()).device
+            des = batch["des"].to(device)
+            tweet = batch["tweet"].to(device)
+            num_prop = batch["num_prop"]
+            cat_prop = batch["cat_prop"]
+            with torch.no_grad():
+                x = self.static(des, tweet, num_prop, cat_prop)
+            del des, tweet
+            x = x.detach()
+            x.requires_grad_(False)
         else:
-            # 微观单视图不需要这些，直接释放，避免无意义占用显存
+            # micro only
             for k in ("des", "tweet", "num_prop", "cat_prop"):
                 if k in batch:
                     batch.pop(k)
